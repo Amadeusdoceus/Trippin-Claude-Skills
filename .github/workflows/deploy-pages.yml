@@ -1,0 +1,35 @@
+name: Deploy web app to GitHub Pages
+
+# Decisão de tecnologia #2 (00-visao-de-negocio-final.md §10): deploy automático
+# por git push via GitHub Actions, sem operação de servidor. O app é o arquivo
+# único em web/ (decisão #1) — nada para buildar, só publicar.
+
+on:
+  push:
+    branches: [main]
+    paths: ["web/**", ".github/workflows/deploy-pages.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: web
+      - id: deployment
+        uses: actions/deploy-pages@v4
