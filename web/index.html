@@ -10,6 +10,8 @@
 <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
 <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
 <script src="https://unpkg.com/@babel/standalone@7.23.5/babel.min.js"></script>
+<!-- E2: cliente Supabase real (Auth + Postgres + Storage via RLS) -->
+<script src="https://unpkg.com/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -365,165 +367,156 @@ function t(lang, key, ...args) {
    Implementa hoje a interface que, na Fase A/E2, passa a chamar Supabase.
    Nenhuma tela deve tocar localStorage diretamente — só via TrippinAPI.
    ========================================================================= */
-const STORAGE_KEYS = { users: 'trippin_users_v1', trips: 'trippin_trips_v1', session: 'trippin_session_v1' };
+// Chave publishable — pode ser pública (decisão de tecnologia #4, 00-F §10);
+// quem protege os dados é o RLS do banco, não o segredo desta chave.
+const SUPABASE_URL = 'https://wwnxrzdmdhdgzokmbvud.supabase.co';
+const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_n9Nxu9sNszlXNHTpSKLCCw_A3aLsG37';
+const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
 
-function readStore(key) {
-  try {
-    const raw = localStorage.getItem(key);
-    return raw ? JSON.parse(raw) : null;
-  } catch (e) { return null; }
-}
-function writeStore(key, value) {
-  localStorage.setItem(key, JSON.stringify(value));
-}
 function randomDigits(n) {
   let s = '';
   for (let i = 0; i < n; i++) s += Math.floor(Math.random() * 10);
   return s;
 }
-function uid() {
-  return 'id_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8);
+
+function mapProfile(row) {
+  if (!row) return null;
+  return {
+    id: row.id, email: row.email, name: row.name, phone: row.phone, cpf: row.cpf,
+    userCode: row.user_code, language: row.language, onboarded: row.onboarded,
+    createdAt: row.created_at,
+  };
+}
+function mapTrip(row) {
+  if (!row) return null;
+  return {
+    id: row.id, code: row.code, name: row.name,
+    startDate: row.start_date, endDate: row.end_date,
+    destinations: row.destinations || [], createdBy: row.created_by, createdAt: row.created_at,
+  };
 }
 
 const TrippinAPI = {
-  _users() { return readStore(STORAGE_KEYS.users) || []; },
-  _saveUsers(list) { writeStore(STORAGE_KEYS.users, list); },
-  _trips() { return readStore(STORAGE_KEYS.trips) || []; },
-  _saveTrips(list) { writeStore(STORAGE_KEYS.trips, list); },
-
-  // ---- H3.1 Cadastro e login por e-mail + senha ----
-  // Mock: senha guardada em texto puro em localStorage só para fins de protótipo local.
-  // Em E2, isto vira uma chamada a Supabase Auth — nenhuma outra tela precisa mudar.
-  signUp({ email, password, name }) {
-    const users = this._users();
-    if (users.some(u => u.email.toLowerCase() === email.toLowerCase())) {
+  // ---- H3.1 Cadastro e login por e-mail + senha, via Supabase Auth ----
+  // O perfil (com código de usuário de 6 dígitos) é criado por um trigger no
+  // banco quando o usuário é inserido em auth.users — ver supabase/migrations.
+  async signUp({ email, password, name }) {
+    const { data, error } = await supabaseClient.auth.signUp({ email, password });
+    if (error) throw new Error('SIGNUP_FAILED');
+    // Anti-enumeração do GoTrue: e-mail já cadastrado volta sem erro explícito,
+    // mas com identities vazio.
+    if (!data.user || (data.user.identities && data.user.identities.length === 0)) {
       throw new Error('EMAIL_IN_USE');
     }
-    const user = {
-      id: uid(),
-      email,
-      password,
-      name: name || '',
-      phone: '',
-      cpf: '',
-      language: 'pt-BR',
-      userCode: this._generateUniqueUserCode(),
-      onboarded: false,
-      createdAt: new Date().toISOString(),
-    };
-    users.push(user);
-    this._saveUsers(users);
-    this.setSession(user.id);
-    return user;
+    if (name) {
+      await supabaseClient.from('profiles').update({ name }).eq('id', data.user.id);
+    }
+    return this.getCurrentProfile();
   },
-  logIn({ email, password }) {
-    const users = this._users();
-    const user = users.find(u => u.email.toLowerCase() === email.toLowerCase() && u.password === password);
-    if (!user) throw new Error('WRONG_CREDENTIALS');
-    this.setSession(user.id);
-    return user;
+  async logIn({ email, password }) {
+    const { error } = await supabaseClient.auth.signInWithPassword({ email, password });
+    if (error) throw new Error('WRONG_CREDENTIALS');
+    return this.getCurrentProfile();
   },
-  setSession(userId) { writeStore(STORAGE_KEYS.session, { userId }); },
-  getSession() {
-    const s = readStore(STORAGE_KEYS.session);
-    if (!s) return null;
-    return this._users().find(u => u.id === s.userId) || null;
+  async logOut() {
+    await supabaseClient.auth.signOut();
   },
-  logOut() { localStorage.removeItem(STORAGE_KEYS.session); },
+  async getCurrentProfile() {
+    const { data: { session } } = await supabaseClient.auth.getSession();
+    if (!session) return null;
+    const { data, error } = await supabaseClient.from('profiles').select('*').eq('id', session.user.id).single();
+    if (error) return null;
+    return mapProfile(data);
+  },
 
   // ---- H3.2 / H3.3 Onboarding + CPF opcional ----
-  _generateUniqueUserCode() {
-    const users = this._users();
-    let code;
-    do { code = randomDigits(6); } while (users.some(u => u.userCode === code));
-    return code;
-  },
-  updateProfile(userId, patch) {
-    const users = this._users();
-    const idx = users.findIndex(u => u.id === userId);
-    if (idx === -1) throw new Error('USER_NOT_FOUND');
-    users[idx] = Object.assign({}, users[idx], patch);
-    this._saveUsers(users);
-    return users[idx];
+  async updateProfile(userId, patch) {
+    const { data, error } = await supabaseClient.from('profiles').update(patch).eq('id', userId).select().single();
+    if (error) throw error;
+    return mapProfile(data);
   },
 
-  // ---- H4.1 Criar viagem ----
-  _generateUniqueTripCode() {
-    const trips = this._trips();
-    let code;
-    do { code = randomDigits(12); } while (trips.some(tr => tr.code === code));
-    return code;
-  },
-  createTrip({ name, startDate, endDate, destinations, ownerId }) {
-    const trip = {
-      id: uid(),
-      code: this._generateUniqueTripCode(),
-      name, startDate, endDate,
-      destinations: destinations || [],
-      members: [{ userId: ownerId, role: 'admin', joinedAt: new Date().toISOString() }],
-      auditLog: [],
-      createdAt: new Date().toISOString(),
-    };
-    const trips = this._trips();
-    trips.push(trip);
-    this._saveTrips(trips);
-    this.addAuditEntry(trip.id, ownerId, `criou a viagem "${name}"`);
-    return trip;
+  // ---- H4.1 Criar viagem (código de 12 dígitos gerado no cliente, com
+  // nova tentativa em caso de colisão contra a restrição unique do banco) ----
+  async createTrip({ name, startDate, endDate, destinations, ownerId }) {
+    let row = null;
+    for (let attempt = 0; attempt < 5 && !row; attempt++) {
+      const code = randomDigits(12);
+      const { data, error } = await supabaseClient
+        .from('trips')
+        .insert({
+          name, start_date: startDate, end_date: endDate,
+          destinations: destinations || [], created_by: ownerId, code,
+        })
+        .select().single();
+      if (!error) { row = data; break; }
+      if (error.code !== '23505') throw error;
+    }
+    if (!row) throw new Error('COULD_NOT_CREATE_TRIP');
+    await this.addAuditEntry(row.id, ownerId, `criou a viagem "${name}"`);
+    return mapTrip(row);
   },
 
   // ---- H4.2 Participar por código ----
-  joinTrip({ code, userId }) {
-    const trips = this._trips();
-    const trip = trips.find(tr => tr.code === code);
-    if (!trip) throw new Error('TRIP_NOT_FOUND');
-    if (!trip.members.some(m => m.userId === userId)) {
-      trip.members.push({ userId, role: 'convidado', joinedAt: new Date().toISOString() });
-      this._saveTrips(trips);
-      this.addAuditEntry(trip.id, userId, 'entrou na viagem');
-    }
-    return trip;
+  // Quem ainda não é integrante não pode fazer SELECT direto em trips (correto,
+  // protege dados de outras viagens) — por isso a busca por código passa por
+  // uma função security definer que só revela a viagem em caso de match exato.
+  async joinTrip({ code, userId }) {
+    const { data: tripRows, error: tripErr } = await supabaseClient
+      .rpc('get_trip_by_code', { p_code: code });
+    const tripRow = tripRows && tripRows[0];
+    if (tripErr || !tripRow) throw new Error('TRIP_NOT_FOUND');
+    const { error: joinErr } = await supabaseClient
+      .from('trip_members')
+      .insert({ trip_id: tripRow.id, user_id: userId, role: 'convidado' });
+    if (joinErr && joinErr.code !== '23505') throw joinErr; // 23505 = já é integrante
+    if (!joinErr) await this.addAuditEntry(tripRow.id, userId, 'entrou na viagem');
+    return mapTrip(tripRow);
   },
 
-  listTripsForUser(userId) {
-    return this._trips().filter(tr => tr.members.some(m => m.userId === userId));
-  },
-  getTrip(tripId) { return this._trips().find(tr => tr.id === tripId) || null; },
-
-  getMemberRole(tripId, userId) {
-    const trip = this.getTrip(tripId);
-    if (!trip) return null;
-    const m = trip.members.find(m => m.userId === userId);
-    return m ? m.role : null;
+  async listTripsForUser(userId) {
+    const { data, error } = await supabaseClient
+      .from('trip_members').select('trip:trips(*)').eq('user_id', userId);
+    if (error) throw error;
+    return (data || []).map(row => mapTrip(row.trip)).filter(Boolean);
   },
 
-  // ---- H4.4 Papéis e permissões — só Admin promove; múltiplos Admin/Coadmin possíveis ----
-  promoteMember(tripId, actingUserId, targetUserId, newRole) {
-    const trips = this._trips();
-    const trip = trips.find(tr => tr.id === tripId);
-    if (!trip) throw new Error('TRIP_NOT_FOUND');
-    const actingRole = (trip.members.find(m => m.userId === actingUserId) || {}).role;
-    if (actingRole !== 'admin') throw new Error('FORBIDDEN');
-    const target = trip.members.find(m => m.userId === targetUserId);
-    if (!target) throw new Error('MEMBER_NOT_FOUND');
-    target.role = newRole;
-    this._saveTrips(trips);
-    this.addAuditEntry(tripId, actingUserId, `promoveu um integrante a ${newRole}`);
-    return trip;
+  // Busca a viagem + integrantes (com nome via join em profiles) + histórico
+  // de auditoria numa só chamada, para as telas de Viagem/Integrantes.
+  async getTripFull(tripId) {
+    const [tripRes, membersRes, auditRes] = await Promise.all([
+      supabaseClient.from('trips').select('*').eq('id', tripId).maybeSingle(),
+      supabaseClient.from('trip_members')
+        .select('user_id, role, joined_at, profile:profiles(name, email)')
+        .eq('trip_id', tripId),
+      supabaseClient.from('audit_log')
+        .select('id, message, created_at, profile:profiles(name, email)')
+        .eq('trip_id', tripId).order('created_at', { ascending: false }),
+    ]);
+    if (tripRes.error || !tripRes.data) return null;
+    const members = (membersRes.data || []).map(m => ({
+      userId: m.user_id, role: m.role, joinedAt: m.joined_at,
+      name: m.profile ? (m.profile.name || m.profile.email) : m.user_id,
+    }));
+    const auditLog = (auditRes.data || []).map(a => ({
+      id: a.id, message: a.message, at: a.created_at,
+      userName: a.profile ? (a.profile.name || a.profile.email) : 'alguém',
+    }));
+    return { trip: mapTrip(tripRes.data), members, auditLog };
+  },
+
+  // ---- H4.4 Papéis e permissões — o RLS já garante que só Admin promove ----
+  async promoteMember(tripId, actingUserId, targetUserId, newRole) {
+    const { error } = await supabaseClient
+      .from('trip_members').update({ role: newRole })
+      .eq('trip_id', tripId).eq('user_id', targetUserId);
+    if (error) throw new Error('FORBIDDEN');
+    await this.addAuditEntry(tripId, actingUserId, `promoveu um integrante a ${newRole}`);
   },
 
   // ---- H4.5 Histórico leve de auditoria ----
-  addAuditEntry(tripId, userId, message) {
-    const trips = this._trips();
-    const trip = trips.find(tr => tr.id === tripId);
-    if (!trip) return;
-    const user = this._users().find(u => u.id === userId);
-    trip.auditLog.unshift({
-      id: uid(),
-      userName: user ? user.name || user.email : 'alguém',
-      message,
-      at: new Date().toISOString(),
-    });
-    this._saveTrips(trips);
+  async addAuditEntry(tripId, userId, message) {
+    await supabaseClient.from('audit_log').insert({ trip_id: tripId, user_id: userId, message });
   },
 };
 
@@ -638,21 +631,23 @@ function AuthScreen({ lang, mode, setMode, onAuthed }) {
   const [name, setName] = useState('');
   const [error, setError] = useState('');
 
-  function submit(e) {
+  const [submitting, setSubmitting] = useState(false);
+
+  async function submit(e) {
     e.preventDefault();
     setError('');
+    setSubmitting(true);
     try {
-      if (mode === 'signup') {
-        const user = TrippinAPI.signUp({ email, password, name });
-        onAuthed(user);
-      } else {
-        const user = TrippinAPI.logIn({ email, password });
-        onAuthed(user);
-      }
+      const profile = mode === 'signup'
+        ? await TrippinAPI.signUp({ email, password, name })
+        : await TrippinAPI.logIn({ email, password });
+      onAuthed(profile);
     } catch (err) {
       if (err.message === 'EMAIL_IN_USE') setError(t(lang, 'emailInUse'));
       else if (err.message === 'WRONG_CREDENTIALS') setError(t(lang, 'wrongCredentials'));
       else setError(t(lang, 'genericError'));
+    } finally {
+      setSubmitting(false);
     }
   }
 
@@ -675,7 +670,7 @@ function AuthScreen({ lang, mode, setMode, onAuthed }) {
           <label>{t(lang, 'password')}</label>
           <input type="password" value={password} onChange={e => setPassword(e.target.value)} required minLength={6} />
         </div>
-        <button className="btn btn-primary" type="submit">
+        <button className="btn btn-primary" type="submit" disabled={submitting}>
           {mode === 'signup' ? t(lang, 'createAccount') : t(lang, 'login')}
         </button>
       </form>
@@ -692,9 +687,9 @@ function OnboardingProfileScreen({ lang, user, onDone }) {
   const [phone, setPhone] = useState(user.phone || '');
   const [cpf, setCpf] = useState(user.cpf || '');
 
-  function submit(e) {
+  async function submit(e) {
     e.preventDefault();
-    const updated = TrippinAPI.updateProfile(user.id, { name, phone, cpf, onboarded: true });
+    const updated = await TrippinAPI.updateProfile(user.id, { name, phone, cpf, onboarded: true });
     onDone(updated);
   }
 
@@ -733,7 +728,18 @@ function daysUntil(dateStr) {
 }
 
 function HomeScreen({ lang, user, onOpenTrip, onGoCreate, onGoJoin }) {
-  const trips = TrippinAPI.listTripsForUser(user.id);
+  const [trips, setTrips] = useState(null); // null = carregando
+
+  useEffect(() => {
+    let alive = true;
+    TrippinAPI.listTripsForUser(user.id).then(list => { if (alive) setTrips(list); });
+    return () => { alive = false; };
+  }, [user.id]);
+
+  if (trips === null) {
+    return <div className="screen"><p className="hint">{lang === 'pt-BR' ? 'Carregando…' : 'Loading…'}</p></div>;
+  }
+
   const now = new Date();
   const active = trips.filter(tr => new Date(tr.endDate) >= now);
   const past = trips.filter(tr => new Date(tr.endDate) < now);
@@ -798,15 +804,26 @@ function CreateTripScreen({ lang, user, onCreated, onCancel }) {
     setDestInput('');
   }
 
-  function submit(e) {
+  const [error, setError] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+
+  async function submit(e) {
     e.preventDefault();
-    const trip = TrippinAPI.createTrip({ name, startDate, endDate, destinations, ownerId: user.id });
-    onCreated(trip.id);
+    setError('');
+    setSubmitting(true);
+    try {
+      const trip = await TrippinAPI.createTrip({ name, startDate, endDate, destinations, ownerId: user.id });
+      onCreated(trip.id);
+    } catch (err) {
+      setError(t(lang, 'genericError'));
+      setSubmitting(false);
+    }
   }
 
   return (
     <div className="screen">
       <h2>{t(lang, 'createTrip')}</h2>
+      {error && <div className="banner-error">{error}</div>}
       <form onSubmit={submit}>
         <div className="field">
           <label>{t(lang, 'tripName')}</label>
@@ -843,7 +860,7 @@ function CreateTripScreen({ lang, user, onCreated, onCancel }) {
         </div>
         <div className="btn-block-row">
           <button className="btn btn-secondary" type="button" onClick={onCancel}>✕</button>
-          <button className="btn btn-primary" type="submit">{t(lang, 'save')}</button>
+          <button className="btn btn-primary" type="submit" disabled={submitting}>{t(lang, 'save')}</button>
         </div>
       </form>
     </div>
@@ -854,11 +871,11 @@ function JoinTripScreen({ lang, user, onJoined, onCancel }) {
   const [code, setCode] = useState('');
   const [error, setError] = useState('');
 
-  function submit(e) {
+  async function submit(e) {
     e.preventDefault();
     setError('');
     try {
-      const trip = TrippinAPI.joinTrip({ code: code.trim(), userId: user.id });
+      const trip = await TrippinAPI.joinTrip({ code: code.trim(), userId: user.id });
       onJoined(trip.id);
     } catch (err) {
       setError(t(lang, 'invalidCode'));
@@ -886,26 +903,25 @@ function JoinTripScreen({ lang, user, onJoined, onCancel }) {
 /* =========================================================================
    Telas — Viagem (E4 Integrantes; demais abas ficam "em breve" até suas fases)
    ========================================================================= */
-function MembersScreen({ lang, trip, user, onChanged }) {
+function MembersScreen({ lang, tripId, tripCode, members, auditLog, myRole, currentUserId, onChanged }) {
   const [sheetTarget, setSheetTarget] = useState(null);
   const [inviteOpen, setInviteOpen] = useState(false);
   const [copied, setCopied] = useState(false);
-  const myRole = TrippinAPI.getMemberRole(trip.id, user.id);
-  const users = TrippinAPI._users();
+  const [promoting, setPromoting] = useState(false);
 
-  function memberName(userId) {
-    const u = users.find(x => x.id === userId);
-    return u ? (u.name || u.email) : userId;
-  }
-
-  function promote(target, newRole) {
-    TrippinAPI.promoteMember(trip.id, user.id, target.userId, newRole);
-    setSheetTarget(null);
-    onChanged();
+  async function promote(target, newRole) {
+    setPromoting(true);
+    try {
+      await TrippinAPI.promoteMember(tripId, currentUserId, target.userId, newRole);
+      setSheetTarget(null);
+      onChanged();
+    } finally {
+      setPromoting(false);
+    }
   }
 
   function copyCode() {
-    navigator.clipboard && navigator.clipboard.writeText(trip.code).catch(() => {});
+    navigator.clipboard && navigator.clipboard.writeText(tripCode).catch(() => {});
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
   }
@@ -916,11 +932,11 @@ function MembersScreen({ lang, trip, user, onChanged }) {
         {t(lang, 'inviteMembers')}
       </button>
 
-      {trip.members.map(m => (
+      {members.map(m => (
         <Card key={m.userId}>
           <div className="row-between">
             <div>
-              <h3>{memberName(m.userId)}</h3>
+              <h3>{m.name}</h3>
               <RoleBadge role={m.role} lang={lang} />
             </div>
             {/* Convidado nunca vê ações de edição — a ação simplesmente não é renderizada (02-UXUI-spec.md §5) */}
@@ -934,9 +950,9 @@ function MembersScreen({ lang, trip, user, onChanged }) {
       ))}
 
       <h3 style={{ marginTop: 20 }}>{t(lang, 'auditLog')}</h3>
-      {trip.auditLog.length === 0
+      {auditLog.length === 0
         ? <p className="hint">{t(lang, 'noAuditYet')}</p>
-        : trip.auditLog.map(entry => (
+        : auditLog.map(entry => (
             <div key={entry.id} className="audit-item">
               <strong>{entry.userName}</strong> {entry.message} — {new Date(entry.at).toLocaleString(lang)}
             </div>
@@ -946,14 +962,14 @@ function MembersScreen({ lang, trip, user, onChanged }) {
       <BottomSheet open={!!sheetTarget} onClose={() => setSheetTarget(null)}>
         {sheetTarget && (
           <div>
-            <h3>{memberName(sheetTarget.userId)}</h3>
+            <h3>{sheetTarget.name}</h3>
             {sheetTarget.role === 'convidado' && (
-              <button className="btn btn-primary" style={{ marginBottom: 8 }} onClick={() => promote(sheetTarget, 'coadmin')}>
+              <button className="btn btn-primary" style={{ marginBottom: 8 }} disabled={promoting} onClick={() => promote(sheetTarget, 'coadmin')}>
                 {t(lang, 'promoteToCoadmin')}
               </button>
             )}
             {sheetTarget.role === 'coadmin' && (
-              <button className="btn btn-primary" onClick={() => promote(sheetTarget, 'admin')}>
+              <button className="btn btn-primary" disabled={promoting} onClick={() => promote(sheetTarget, 'admin')}>
                 {t(lang, 'promoteToAdmin')}
               </button>
             )}
@@ -963,23 +979,36 @@ function MembersScreen({ lang, trip, user, onChanged }) {
 
       <BottomSheet open={inviteOpen} onClose={() => setInviteOpen(false)}>
         <h3>{t(lang, 'inviteMembers')}</h3>
-        {/* Envio real de e-mail depende de Edge Function (E2) — aqui só registramos a intenção. */}
+        {/* Envio real de e-mail depende de Edge Function (fora da Fase A) — aqui só registramos a intenção. */}
         <div className="field">
           <label>{t(lang, 'inviteByEmail')}</label>
           <input type="email" placeholder="nome@exemplo.com" />
         </div>
         <p className="hint">{t(lang, 'inviteLinkHint')}</p>
-        <div className="code-display">{trip.code}</div>
+        <div className="code-display">{tripCode}</div>
         <button className="btn btn-secondary" onClick={copyCode}>{copied ? t(lang, 'copied') : t(lang, 'copyCode')}</button>
       </BottomSheet>
     </div>
   );
 }
 
-function TripScreen({ lang, tripId, user, onBack, refreshKey, onChanged }) {
+function TripScreen({ lang, tripId, user }) {
   const [activeTab, setActiveTab] = useState('schedule');
-  const trip = TrippinAPI.getTrip(tripId);
-  if (!trip) return <div className="screen"><EmptyState title={t(lang, 'invalidCode')} /></div>;
+  const [data, setData] = useState(null); // { trip, members, auditLog } | null (carregando)
+  const [reloadKey, setReloadKey] = useState(0);
+
+  useEffect(() => {
+    let alive = true;
+    TrippinAPI.getTripFull(tripId).then(result => { if (alive) setData(result); });
+    return () => { alive = false; };
+  }, [tripId, reloadKey]);
+
+  if (data === null) {
+    return <div className="screen"><p className="hint">{lang === 'pt-BR' ? 'Carregando…' : 'Loading…'}</p></div>;
+  }
+  if (!data.trip) return <div className="screen"><EmptyState title={t(lang, 'invalidCode')} /></div>;
+
+  const myRole = (data.members.find(m => m.userId === user.id) || {}).role || null;
 
   const tabs = [
     { key: 'schedule', label: t(lang, 'schedule') },
@@ -992,10 +1021,12 @@ function TripScreen({ lang, tripId, user, onBack, refreshKey, onChanged }) {
 
   return (
     <div className="screen">
-      <h2>{trip.name}</h2>
+      <h2>{data.trip.name}</h2>
       <SegmentedTabs tabs={tabs} active={activeTab} onChange={setActiveTab} />
       {activeTab === 'members'
-        ? <MembersScreen lang={lang} trip={trip} user={user} onChanged={onChanged} />
+        ? <MembersScreen lang={lang} tripId={tripId} tripCode={data.trip.code} members={data.members}
+            auditLog={data.auditLog} myRole={myRole} currentUserId={user.id}
+            onChanged={() => setReloadKey(k => k + 1)} />
         : <EmptyState title={t(lang, 'comingSoon')} />}
     </div>
   );
@@ -1006,9 +1037,10 @@ function ProfileScreen({ lang, user, onUpdate, onChangeLanguage }) {
   const [phone, setPhone] = useState(user.phone || '');
   const [cpf, setCpf] = useState(user.cpf || '');
 
-  function save(e) {
+  async function save(e) {
     e.preventDefault();
-    onUpdate(TrippinAPI.updateProfile(user.id, { name, phone, cpf }));
+    const updated = await TrippinAPI.updateProfile(user.id, { name, phone, cpf });
+    onUpdate(updated);
   }
 
   return (
@@ -1046,35 +1078,55 @@ function PlaceholderScreen({ lang, title, onBack }) {
    para o número de telas da Fase A)
    ========================================================================= */
 function App() {
-  const [bootUser, setBootUser] = useState(() => TrippinAPI.getSession());
-  const [lang, setLang] = useState(() => (bootUser && bootUser.language) || 'pt-BR');
+  const [user, setUser] = useState(null);
+  const [authChecked, setAuthChecked] = useState(false);
+  const [lang, setLang] = useState('pt-BR');
   const [authMode, setAuthMode] = useState('signup');
-  const [screen, setScreen] = useState(() => {
-    if (!bootUser) return 'language';
-    if (!bootUser.onboarded) return 'onboarding-profile';
-    return 'home';
-  });
+  const [screen, setScreen] = useState('language');
   const [tripId, setTripId] = useState(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [, forceRefresh] = useState(0);
-  const bump = () => forceRefresh(n => n + 1);
 
-  const user = bootUser ? TrippinAPI._users().find(u => u.id === bootUser.id) : null;
+  // Sessão do Supabase é restaurada automaticamente do localStorage pelo
+  // próprio cliente (persistSession, padrão do supabase-js) — aqui só
+  // buscamos o perfil correspondente para decidir a tela inicial.
+  useEffect(() => {
+    let alive = true;
+    TrippinAPI.getCurrentProfile().then(profile => {
+      if (!alive) return;
+      if (profile) {
+        setUser(profile);
+        setLang(profile.language || 'pt-BR');
+        setScreen(profile.onboarded ? 'home' : 'onboarding-profile');
+      }
+      setAuthChecked(true);
+    });
+    return () => { alive = false; };
+  }, []);
 
   function handleChooseLanguage(l) { setLang(l); setScreen('auth'); }
-  function handleAuthed(u) {
-    setBootUser(u);
-    setLang(u.language || lang);
-    setScreen(u.onboarded ? 'home' : 'onboarding-profile');
+  function handleAuthed(profile) {
+    setUser(profile);
+    setLang(profile.language || lang);
+    setScreen(profile.onboarded ? 'home' : 'onboarding-profile');
   }
-  function handleOnboarded(u) { setBootUser(u); setScreen('home'); }
-  function handleLogout() { TrippinAPI.logOut(); setBootUser(null); setScreen('language'); setDrawerOpen(false); }
-  function handleChangeLanguage(l) {
+  function handleOnboarded(profile) { setUser(profile); setScreen('home'); }
+  async function handleLogout() {
+    await TrippinAPI.logOut();
+    setUser(null);
+    setScreen('language');
+    setDrawerOpen(false);
+  }
+  async function handleChangeLanguage(l) {
     setLang(l);
-    if (user) TrippinAPI.updateProfile(user.id, { language: l });
-    bump();
+    if (user) {
+      const updated = await TrippinAPI.updateProfile(user.id, { language: l });
+      setUser(updated);
+    }
   }
 
+  if (!authChecked) {
+    return <div style={{ padding: 24, fontFamily: 'system-ui, sans-serif' }}>Carregando Trippin…</div>;
+  }
   if (screen === 'language') return <LanguageScreen onChoose={handleChooseLanguage} />;
   if (screen === 'auth') return <AuthScreen lang={lang} mode={authMode} setMode={setAuthMode} onAuthed={handleAuthed} />;
   if (screen === 'onboarding-profile') return <OnboardingProfileScreen lang={lang} user={user} onDone={handleOnboarded} />;
@@ -1113,10 +1165,10 @@ function App() {
           onCancel={() => setScreen('home')} />
       )}
       {screen === 'trip' && (
-        <TripScreen lang={lang} tripId={tripId} user={user} onChanged={bump} />
+        <TripScreen lang={lang} tripId={tripId} user={user} />
       )}
       {screen === 'profile' && (
-        <ProfileScreen lang={lang} user={user} onUpdate={bump} onChangeLanguage={handleChangeLanguage} />
+        <ProfileScreen lang={lang} user={user} onUpdate={setUser} onChangeLanguage={handleChangeLanguage} />
       )}
       {['notifications', 'settings', 'privacy'].includes(screen) && (
         <PlaceholderScreen lang={lang} title={titles[screen]} />
