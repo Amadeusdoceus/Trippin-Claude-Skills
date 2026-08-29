@@ -397,7 +397,70 @@ function mapTrip(row) {
   };
 }
 
-const TrippinAPI = {
+/* =========================================================================
+   E15 / H15.2 — captura estruturada de erros e crashes do cliente.
+   Grava em client_errors (Supabase); ninguém lê pela UI, é para revisão de
+   engenharia via acesso direto ao banco. Nunca deixa uma falha de log
+   derrubar o fluxo real — sempre best-effort, silencioso em caso de erro.
+   ========================================================================= */
+async function logClientError(error, context) {
+  try {
+    const { data: { session } } = await supabaseClient.auth.getSession();
+    await supabaseClient.from('client_errors').insert({
+      user_id: session ? session.user.id : null,
+      message: String((error && error.message) || error || 'erro desconhecido'),
+      stack: error && error.stack ? String(error.stack).slice(0, 4000) : null,
+      context: context || {},
+      user_agent: navigator.userAgent,
+      url: location.href,
+    });
+  } catch (loggingError) {
+    // Logging nunca pode virar uma segunda falha visível ao usuário.
+  }
+}
+
+// Códigos de erro "esperados" — já viram uma mensagem amigável na tela
+// (senha errada, e-mail em uso, código inválido, sem permissão). Não são bug,
+// não entram no log — senão toda tentativa de senha errada viraria "crash".
+const EXPECTED_ERROR_CODES = new Set(['EMAIL_IN_USE', 'WRONG_CREDENTIALS', 'TRIP_NOT_FOUND', 'FORBIDDEN']);
+
+function redactArgsForLog(args) {
+  try {
+    return args.map(a => {
+      if (a && typeof a === 'object' && !Array.isArray(a)) {
+        const clone = Object.assign({}, a);
+        delete clone.password;
+        return clone;
+      }
+      return a;
+    });
+  } catch (e) { return null; }
+}
+
+// Envolve todo método de TrippinAPI: qualquer erro que não seja um dos
+// códigos esperados acima é logado automaticamente, com o nome do método e
+// os argumentos (sem senha) como contexto — cobre "qualquer erro de API não
+// tratado" (H15.2) sem precisar instrumentar cada tela manualmente.
+function withErrorLogging(api) {
+  const wrapped = {};
+  Object.keys(api).forEach((key) => {
+    const original = api[key];
+    if (typeof original !== 'function') { wrapped[key] = original; return; }
+    wrapped[key] = async function (...args) {
+      try {
+        return await original.apply(api, args);
+      } catch (error) {
+        if (!EXPECTED_ERROR_CODES.has(error && error.message)) {
+          logClientError(error, { source: 'TrippinAPI.' + key, args: redactArgsForLog(args) });
+        }
+        throw error;
+      }
+    };
+  });
+  return wrapped;
+}
+
+const RawTrippinAPI = {
   // ---- H3.1 Cadastro e login por e-mail + senha, via Supabase Auth ----
   // O perfil (com código de usuário de 6 dígitos) é criado por um trigger no
   // banco quando o usuário é inserido em auth.users — ver supabase/migrations.
@@ -516,6 +579,8 @@ const TrippinAPI = {
     await supabaseClient.from('audit_log').insert({ trip_id: tripId, user_id: userId, message });
   },
 };
+
+const TrippinAPI = withErrorLogging(RawTrippinAPI);
 
 /* =========================================================================
    Componentes base reutilizáveis (E1 / H1.2)
@@ -1182,6 +1247,9 @@ function App() {
 class ErrorBoundary extends React.Component {
   constructor(props) { super(props); this.state = { hasError: false }; }
   static getDerivedStateFromError() { return { hasError: true }; }
+  componentDidCatch(error, errorInfo) {
+    logClientError(error, { source: 'ErrorBoundary', componentStack: errorInfo && errorInfo.componentStack });
+  }
   render() {
     if (this.state.hasError) {
       return (
@@ -1194,6 +1262,17 @@ class ErrorBoundary extends React.Component {
     return this.props.children;
   }
 }
+
+// Captura erros de runtime e promises rejeitadas sem handler que aconteçam
+// depois do app já ter montado (fora do que o ErrorBoundary do React alcança,
+// que só cobre erros durante o render). Falhas de bootstrap (antes daqui)
+// já têm seu próprio fallback estático mais acima no arquivo.
+window.addEventListener('error', (event) => {
+  logClientError(event.error || event.message, { source: 'window.onerror' });
+});
+window.addEventListener('unhandledrejection', (event) => {
+  logClientError(event.reason, { source: 'unhandledrejection' });
+});
 
 const rootEl = document.getElementById('root');
 rootEl.dataset.mounted = 'true';

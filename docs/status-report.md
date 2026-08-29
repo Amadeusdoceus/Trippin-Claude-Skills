@@ -4,27 +4,24 @@
 |---|---|
 | **Tipo** | Relatório de status gerencial — atualizado a cada ciclo, não é parte da cadeia numerada `00→07` |
 | **Base** | `00-visao-de-negocio-final.md`, `02-UXUI-spec.md`, `03-backlog.md` |
-| **Atualização atual** | 2026-08-29 (ciclo 6 — auditoria de segurança + arquitetura de crescimento) |
-| **Atualização anterior** | 2026-08-29 (ciclo 5 — frontend conectado ao Supabase real) |
+| **Atualização atual** | 2026-08-29 (ciclo 7 — H15.2: log de erros em produção) |
+| **Atualização anterior** | 2026-08-29 (ciclo 6 — auditoria de segurança + arquitetura de crescimento) |
 | **Como manter** | A cada novo ciclo: atualizar seções 1–4 com o estado atual e adicionar uma linha em "Histórico" (seção 6). Não reescrever o histórico de ciclos passados. |
 
 ---
 
 ## 1. Resumo executivo
 
-**Auditoria de segurança feita sobre o que está em produção — não uma revisão de papel.** Uma
-varredura manual das policies reais encontrou **dois furos genuínos**: qualquer usuário autenticado
-podia virar integrante de qualquer viagem só adivinhando um ID sequencial (sem nunca ver o código),
-e qualquer colega de viagem podia ler CPF/telefone de outro integrante via chamada direta à API,
-mesmo a UI nunca mostrando esses campos. Os dois foram fechados, e um teste adversarial automatizado
-(um "atacante" de verdade tentando os dois ataques) confirma que ambos falham agora como esperado.
-Também: React trocado para build de produção, favicon adicionado, e a VN ganhou uma seção nova
-(§17) documentando a postura de segurança real e um gatilho concreto para revisar a arquitetura de
-arquivo único quando o app crescer. Estimativa segue em **~12 semanas até a V1**, sem mudança.
+**H15.2 (log de erros) implementada e adiantada, exatamente pelo motivo registrado no ciclo
+anterior: não crescer usuários sem saber quando algo quebra.** Todo erro inesperado do cliente —
+crash de tela, chamada de API que falhou sem ser um caso já tratado pela UI — agora vira uma linha
+com contexto suficiente para reproduzir, guardada num lugar que só a engenharia acessa. Verificado
+com teste real: um erro forçado gerou exatamente 1 linha; um erro esperado (senha errada) gerou
+zero; ninguém consegue ler a tabela pela API. As outras duas partes de E15 (tela de sincronização,
+suíte de qualidade/CI) ficaram deliberadamente de fora — a primeira não tem o que mostrar sem E12
+existir, a segunda é uma frente de tooling separada. Estimativa segue em **~12 semanas até a V1**.
 
-**Pendência que mais afeta o prazo real:** ainda não há equipe/cadência definida (ver seção 4), e
-agora também a ausência de observabilidade de erros (E15) — registrada como risco a não crescer a
-base de usuários sem resolver antes.
+**Pendência que mais afeta o prazo real:** ainda não há equipe/cadência definida (ver seção 4).
 
 ---
 
@@ -118,17 +115,35 @@ de "olhar para segurança e proteção de dados" e definir arquitetura de cresci
   que estava registrado desde `01`.
 - **Limpeza:** contas/viagens de teste apagadas de novo do banco real.
 
+Ciclo 7 — a recomendação do ciclo 6 foi adotada e implementada (H15.2 do backlog, adiantada fora de
+ordem):
+
+- **Tabela `client_errors`** no Supabase: sem policy de leitura para `authenticated`/`anon` — é um
+  log de engenharia acessado direto pelo banco, não uma tela do produto, exatamente para não expor
+  o stack trace de um usuário a outro.
+- **Captura automática e abrangente**, sem precisar instrumentar tela por tela: todo método de
+  `TrippinAPI` passou a rodar dentro de um wrapper que loga qualquer erro inesperado com contexto
+  (método, argumentos — nunca senha, stack trace, usuário da sessão). Cobre também erros de render
+  (via `componentDidCatch` do `ErrorBoundary`) e erros/promises sem handler em qualquer parte do app.
+- **Filtro de ruído deliberado:** erros já tratados pela UI (senha errada, e-mail em uso, código de
+  viagem inválido, sem permissão) ficam fora do log — são comportamento esperado do usuário, não bug.
+  Sem esse filtro, cada tentativa de senha errada viraria um "crash" falso no log.
+- **Verificado com teste dedicado:** um erro forçado e genuinamente inesperado gerou exatamente 1
+  linha com contexto útil; uma tentativa de login com senha errada gerou 0 linhas; um fluxo completo
+  de uso normal (criar viagem, entrar por código, promover) também gerou 0 linhas novas; e uma
+  tentativa de ler a tabela pelo cliente confirma que ninguém consegue.
+- **Fora deste ciclo, deliberadamente:** H15.1 (tela "Registro de sincronização" voltada ao usuário)
+  segue adiada — não existe hoje nenhuma sincronização offline (E12) para ela mostrar, construir uma
+  tela vazia seria trabalho descartável. H15.3 (Playwright + `validate-code.js` + gate de CI) segue
+  não iniciada — é uma frente de tooling distinta de "log de erros".
+
 ---
 
 ## 3. Próximos passos imediatos
 
-A Fase A (E1–E4) está funcionalmente completa, real e agora também auditada. Próximo é a Fase B do
-backlog — esqueleto vertical mínimo (E5, E6-mín, E7-mín): Home sensível ao estado, um evento de
-cronograma, uma despesa — já direto contra o Supabase.
-
-**Recomendação explícita (`00-F` §17.2, `03` nota da seção de sequenciamento):** considerar
-adiantar **E15 (log de erros/observabilidade)** para antes da Fase B, ou pelo menos antes de
-qualquer esforço de trazer mais usuários — hoje um bug em produção só aparece se alguém reclamar.
+A Fase A (E1–E4) está completa, real, auditada, e agora com observabilidade mínima de erros.
+Próximo é a Fase B do backlog — esqueleto vertical mínimo (E5, E6-mín, E7-mín): Home sensível ao
+estado, um evento de cronograma, uma despesa — já direto contra o Supabase.
 
 **Ainda em aberto, sem bloquear:**
 - Definir o modelo de negócio em si (não só o dono) — sem prazo declarado.
@@ -136,6 +151,7 @@ qualquer esforço de trazer mais usuários — hoje um bug em produção só apa
 - Navegação da tab bar "Viagem" não sabe qual viagem reabrir após um F5 (ver seção 2) — pequeno, mas
   vale um épico/história próprio quando a Fase B começar.
 - Sem fluxo de "esqueci minha senha" e sem teste automatizado de RLS (ambos em `00-F` §17.2).
+- H15.3 (Playwright/CI antes do push) — pedir explicitamente quando quiser priorizar essa frente.
 
 ---
 
@@ -184,3 +200,4 @@ ainda:
 | 2026-08-29 | E2 concluído: projeto Supabase real (schema+RLS+Storage) e repositório GitHub reais; app publicado em produção via GitHub Pages; frontend ainda roda sobre o mock, conexão real fica para o próximo ciclo |
 | 2026-08-29 | Frontend conectado ao Supabase real; 2 bugs de RLS encontrados e corrigidos via teste com dois usuários reais (criação de viagem bloqueada por RETURNING+SELECT policy; convidado não conseguia localizar viagem por código); dados de teste limpos |
 | 2026-08-29 | Auditoria de segurança sobre produção: 2 furos reais fechados (enumeração de viagens sem código; vazamento de CPF/telefone entre colegas), privilégio mínimo em UPDATE, constraint de datas, React em build de produção, e nova seção de arquitetura/crescimento na VN (`00-F` §17) |
+| 2026-08-29 | H15.2 implementada e adiantada: log estruturado de erros do cliente (`client_errors`, sem leitura pela UI), cobrindo toda a `TrippinAPI` + render + promises sem handler, com filtro para não logar erros já tratados pela UI; verificado com teste dedicado (erro forçado logado, erro esperado e uso normal não geram ruído) |

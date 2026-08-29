@@ -436,9 +436,13 @@ acesso na própria tabela, não só omitido da tela.
 
 Registrado explicitamente para não virar suposição otimista:
 
-- **Sem observabilidade de erros em produção** — o épico E15 (log de erros/Sentry) não foi
-  implementado. Hoje, um bug em produção só aparece se um usuário reclamar. Isso deveria vir antes
-  de qualquer esforço deliberado de aquisição de usuários, não depois.
+- ~~Sem observabilidade de erros em produção~~ — **resolvido em 2026-08-29** (H15.2, adiantada fora
+  de ordem): todo erro inesperado do cliente (crash de render, erro de API não tratado, promise sem
+  handler) é capturado com contexto (usuário, método/ação, argumentos sem dados sensíveis, stack) em
+  `client_errors`, sem policy de leitura pela UI — é revisado direto no banco pela engenharia. Erros
+  já tratados pela UI (senha errada, código inválido) são deliberadamente excluídos para não virar
+  ruído. H15.1 (tela de sincronização voltada ao usuário) segue adiada até existir E12; H15.3
+  (Playwright/CI antes do push) segue não iniciada.
 - **Sem fluxo de "esqueci minha senha"** — Supabase Auth suporta nativamente, mas a tela não foi
   construída. Aceitável para os primeiros usuários de teste, não para uma base maior.
 - **Sem teste automatizado de RLS** — os dois bugs desta rodada só apareceram porque testamos com

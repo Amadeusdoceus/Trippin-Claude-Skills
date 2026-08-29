@@ -22,10 +22,10 @@
 | **D — Completar módulos** | E6-completo, E7-completo, E9, E10, E11 | Semana/mês, reordenar, conflitos, métodos de divisão avançados, Mapa, Galeria, Sugestões |
 | **E — Infraestrutura transversal** | E12, E13, E14, E15 | Offline, notificações/drawer, retenção/privacidade e log de erros só fazem sentido depois de existirem fluxos reais para sincronizar, notificar e logar |
 
-> **Nota adicionada em 2026-08-29 (`00-F` §17.2):** com E2 em produção, **E15 (log de erros e
-> observabilidade)** deveria ser adiantado para antes de qualquer esforço deliberado de aquisição
-> de usuários — hoje um bug em produção só é percebido se alguém reclamar. Não é um bloqueio para
-> continuar a Fase B, mas é um risco real se o número de usuários crescer antes de E15 existir.
+> **Nota adicionada em 2026-08-29 (`00-F` §17.2):** a parte de E15 mais urgente para crescer com
+> segurança — H15.2, captura estruturada de erros — foi adiantada e concluída fora de ordem, antes
+> do restante da Fase B/C. H15.1 (tela de sincronização) segue adiada até existir E12; H15.3
+> (Playwright/CI) segue não iniciada.
 
 ---
 
@@ -208,10 +208,13 @@
 
 - **H15.1 (lado usuário)** Tela "Registro de sincronização" (Perfil ou config. da Viagem).
   - Critério de aceite: toda falha de sincronização aparece como uma linha com horário, descrição e ação "Tentar novamente"; sucesso automático em segundo plano marca o item como "Corrigido automaticamente".
+  - **Status: adiada.** Depende do épico E12 (offline/sincronização), que ainda não existe — não há hoje nenhuma "falha de sincronização" real para essa tela mostrar. Construir uma tela vazia agora seria trabalho descartável; revisitar junto com E12.
 - **H15.2 (lado engenharia)** Camada de captura estruturada de erros e crashes (ex.: Sentry ou equivalente).
   - Critério de aceite: qualquer crash ou erro de API não tratado no cliente gera um evento capturado com contexto suficiente para reproduzir (usuário, viagem, ação, stack trace), sem exigir que o usuário relate o problema manualmente.
+  - **Status: feito em 2026-08-29**, adiantado antes do restante da Fase B/C (recomendação de `00-F` §17.2). Implementado como tabela `client_errors` no Supabase (sem policy de leitura — é para revisão de engenharia via banco, não uma tela do produto) e um wrapper que envolve todo método de `TrippinAPI`, logando automaticamente qualquer erro que não seja um código já tratado pela UI (evita logar "senha errada" como se fosse bug). Cobre também erros de render (`ErrorBoundary`) e erros/promises não tratadas em qualquer ponto do app. Verificado com teste dedicado: erro inesperado gera 1 linha com contexto (método, argumentos sem senha, stack); erro esperado não gera nenhuma; ninguém consegue ler a tabela pelo cliente.
 - **H15.3** Suíte de qualidade: `validate-code.js` (sintaxe/chaves) + Playwright E2E, rodando via `npm run review` antes de qualquer push (decisão #10 de `00-F` §10).
   - Critério de aceite: um push com erro de sintaxe ou que quebre um fluxo E2E coberto é bloqueado antes de chegar ao GitHub Pages (E2.1).
+  - **Status: não iniciado.** É uma frente de tooling/CI separada de "log de erros" — pedir explicitamente quando quiser priorizar.
 
 ---
 
