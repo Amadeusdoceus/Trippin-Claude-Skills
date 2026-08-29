@@ -1,0 +1,14 @@
+# Segredos — nunca commitar (decisão de tecnologia #4, 00-visao-de-negocio-final.md §10)
+.env
+.env.*
+!.env.example
+supabase/.temp/
+supabase/.branches/
+
+# Instalação local das skills do Claude Code (ferramenta, não código do produto)
+.agents/
+.claude/
+
+# OS / editor
+.DS_Store
+Thumbs.db

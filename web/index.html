@@ -1,0 +1,1166 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Trippin</title>
+
+<!-- Decisão de tecnologia #1 (00-visao-de-negocio-final.md §10): front em arquivo único
+     HTML + React 18 via CDN, sem bundler/build. Babel standalone permite JSX inline. -->
+<script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+<script src="https://unpkg.com/@babel/standalone@7.23.5/babel.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+<style>
+  /* ---------- E1 / H1.1 — Tokens "Golden Hour" (claro e escuro) ---------- */
+  :root {
+    --color-primary: #E2673A;        /* terracota/coral */
+    --color-primary-contrast: #FFFFFF;
+    --color-secondary: #1F5C56;      /* verde-petróleo profundo */
+    --color-surface: #FBF4EA;        /* areia/creme */
+    --color-surface-raised: #FFFFFF;
+    --color-border: #E7D9C6;
+    --color-text: #211D1A;           /* quase-preto, não preto puro */
+    --color-text-muted: #6B6259;
+    --color-danger: #B3413A;
+    --color-conflict: #F0B429;
+    --radius-md: 12px;
+    --radius-lg: 20px;
+    --font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+    --tracking-tight: -0.01em;
+    --tracking-wide: 0.02em;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --color-primary: #F0794C;
+      --color-primary-contrast: #1A1512;
+      --color-secondary: #4FBDAF;
+      --color-surface: #171A24;      /* azul-crepúsculo profundo */
+      --color-surface-raised: #20242F;
+      --color-border: #2E3342;
+      --color-text: #F3EFEA;
+      --color-text-muted: #A8A296;
+      --color-danger: #E2857D;
+      --color-conflict: #F0B429;
+    }
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: var(--font-family);
+    background: var(--color-surface);
+    color: var(--color-text);
+    letter-spacing: var(--tracking-tight);
+  }
+  h1, h2, h3 { letter-spacing: var(--tracking-tight); }
+  small, .label { letter-spacing: var(--tracking-wide); }
+  button { font-family: inherit; }
+
+  #root { min-height: 100vh; display: flex; flex-direction: column; }
+
+  .app-shell { display: flex; flex-direction: column; min-height: 100vh; padding-bottom: 72px; }
+  .top-bar {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 16px; background: var(--color-surface-raised);
+    border-bottom: 1px solid var(--color-border);
+    position: sticky; top: 0; z-index: 10;
+  }
+  .top-bar h1 { font-size: 17px; margin: 0; }
+  .icon-btn {
+    background: none; border: none; font-size: 20px; cursor: pointer;
+    color: var(--color-text); padding: 4px 8px; border-radius: var(--radius-md);
+  }
+  .icon-btn:hover { background: var(--color-border); }
+
+  .screen { flex: 1; padding: 16px; max-width: 720px; width: 100%; margin: 0 auto; }
+
+  /* ---------- E1 / H1.2 — Componentes base reutilizáveis ---------- */
+
+  /* Card — usado em Home (lista de viagens), Integrantes e Log de auditoria */
+  .card {
+    background: var(--color-surface-raised);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    padding: 16px;
+    margin-bottom: 12px;
+  }
+  .card h3 { margin: 0 0 4px; font-size: 15px; }
+  .card p { margin: 0; color: var(--color-text-muted); font-size: 13px; }
+
+  /* Botões */
+  .btn {
+    border: none; border-radius: var(--radius-md); padding: 12px 18px;
+    font-size: 14px; font-weight: 600; cursor: pointer; width: 100%;
+  }
+  .btn-primary { background: var(--color-primary); color: var(--color-primary-contrast); }
+  .btn-secondary { background: transparent; color: var(--color-secondary); border: 1px solid var(--color-secondary); }
+  .btn-danger { background: transparent; color: var(--color-danger); border: 1px solid var(--color-danger); }
+  .btn-block-row { display: flex; gap: 8px; }
+  .btn[disabled] { opacity: 0.5; cursor: not-allowed; }
+
+  .field { margin-bottom: 14px; }
+  .field label { display: block; font-size: 13px; margin-bottom: 6px; color: var(--color-text-muted); }
+  .field input, .field select {
+    width: 100%; padding: 10px 12px; border-radius: var(--radius-md);
+    border: 1px solid var(--color-border); background: var(--color-surface-raised);
+    color: var(--color-text); font-size: 14px; font-family: inherit;
+  }
+  .hint { font-size: 12px; color: var(--color-text-muted); margin-top: 4px; }
+  .error-text { font-size: 12px; color: var(--color-danger); margin-top: 4px; }
+
+  .badge {
+    display: inline-block; font-size: 11px; font-weight: 700; padding: 2px 8px;
+    border-radius: 999px; letter-spacing: var(--tracking-wide); text-transform: uppercase;
+  }
+  .badge-admin { background: var(--color-primary); color: var(--color-primary-contrast); }
+  .badge-coadmin { background: var(--color-secondary); color: white; }
+  .badge-convidado { background: var(--color-border); color: var(--color-text-muted); }
+
+  .empty-state { text-align: center; padding: 40px 16px; color: var(--color-text-muted); }
+  .empty-state .btn { max-width: 260px; margin: 12px auto 0; }
+
+  /* Tab bar inferior (mobile-first) — usada em Home / Viagem / Perfil */
+  .tab-bar {
+    position: fixed; bottom: 0; left: 0; right: 0;
+    display: flex; background: var(--color-surface-raised);
+    border-top: 1px solid var(--color-border); z-index: 10;
+  }
+  .tab-bar button {
+    flex: 1; background: none; border: none; padding: 10px 4px 12px;
+    font-size: 11px; color: var(--color-text-muted); cursor: pointer;
+    display: flex; flex-direction: column; align-items: center; gap: 2px;
+  }
+  .tab-bar button .tab-icon { font-size: 18px; }
+  .tab-bar button.active { color: var(--color-primary); font-weight: 700; }
+
+  /* Faixa de abas horizontal (nível 2 da IA, dentro de "Viagem") */
+  .segmented-tabs {
+    display: flex; gap: 6px; overflow-x: auto; padding-bottom: 8px; margin-bottom: 12px;
+  }
+  .segmented-tabs button {
+    flex: 0 0 auto; border: 1px solid var(--color-border); background: var(--color-surface-raised);
+    color: var(--color-text-muted); border-radius: 999px; padding: 8px 14px;
+    font-size: 13px; cursor: pointer; white-space: nowrap;
+  }
+  .segmented-tabs button.active {
+    background: var(--color-primary); color: var(--color-primary-contrast); border-color: var(--color-primary);
+  }
+
+  /* Drawer lateral — Notificações, Configurações, Privacidade, Sair */
+  .drawer-backdrop {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.35); z-index: 20;
+  }
+  .drawer {
+    position: fixed; top: 0; left: 0; bottom: 0; width: 260px;
+    background: var(--color-surface-raised); z-index: 21; padding: 20px 16px;
+    display: flex; flex-direction: column; gap: 4px;
+    box-shadow: 4px 0 24px rgba(0,0,0,0.15);
+  }
+  .drawer h2 { font-size: 15px; margin: 0 0 12px; }
+  .drawer button {
+    text-align: left; background: none; border: none; padding: 12px 8px;
+    font-size: 14px; color: var(--color-text); border-radius: var(--radius-md); cursor: pointer;
+  }
+  .drawer button:hover { background: var(--color-border); }
+
+  /* Bottom sheet — usado em Convite/Compartilhar e Promover integrante */
+  .sheet-backdrop {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.35); z-index: 30;
+    display: flex; align-items: flex-end; justify-content: center;
+  }
+  .sheet {
+    background: var(--color-surface-raised); width: 100%; max-width: 480px;
+    border-radius: 20px 20px 0 0; padding: 20px 20px 28px; z-index: 31;
+  }
+  .sheet-handle {
+    width: 36px; height: 4px; background: var(--color-border); border-radius: 999px;
+    margin: 0 auto 16px;
+  }
+
+  .row-between { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .code-display {
+    font-family: monospace; font-size: 22px; letter-spacing: 2px; font-weight: 700;
+    text-align: center; padding: 12px; background: var(--color-surface);
+    border-radius: var(--radius-md); margin: 12px 0;
+  }
+
+  .audit-item { font-size: 12px; color: var(--color-text-muted); padding: 6px 0; border-bottom: 1px solid var(--color-border); }
+  .audit-item:last-child { border-bottom: none; }
+
+  .banner-error {
+    background: var(--color-danger); color: white; padding: 12px 16px;
+    border-radius: var(--radius-md); margin-bottom: 12px; font-size: 13px;
+  }
+</style>
+</head>
+<body>
+<div id="root">
+  <!-- Fallback estático: se React não montar (risco documentado em 00-F §11 — arquivo único
+       sem bundler pode gerar "tela branca" por erro de sintaxe), isto evita uma tela em branco. -->
+  <div style="padding:24px;font-family:system-ui,sans-serif;color:#211D1A;">
+    Carregando Trippin…
+  </div>
+</div>
+
+<script>
+  // Mitigação adicional do risco de "tela branca" (00-F §11 / decisão #1): captura erros
+  // não tratados do runtime e mostra uma mensagem legível em vez de uma tela vazia.
+  window.addEventListener('error', function (event) {
+    var root = document.getElementById('root');
+    if (root && !root.dataset.mounted) {
+      root.innerHTML =
+        '<div style="padding:24px;font-family:system-ui,sans-serif;">' +
+        '<h2 style="color:#B3413A;">Algo deu errado ao carregar o Trippin</h2>' +
+        '<p style="color:#6B6259;">Recarregue a página. Se o problema persistir, avise o time.</p>' +
+        '</div>';
+    }
+  });
+</script>
+
+<script type="text/plain" id="app-source">
+const { useState, useEffect, useMemo, useCallback } = React;
+
+/* =========================================================================
+   E1 / H1.3 — Infraestrutura de i18n (PT-BR completo + EN-US completo)
+   ========================================================================= */
+const I18N = {
+  'pt-BR': {
+    appName: 'Trippin',
+    onboardingChooseLanguage: 'Escolha seu idioma',
+    continue: 'Continuar',
+    onboardingProfileTitle: 'Crie seu perfil',
+    name: 'Nome',
+    phone: 'Telefone (contato de emergência)',
+    cpfOptional: 'CPF (opcional)',
+    email: 'E-mail',
+    password: 'Senha',
+    createAccount: 'Criar conta',
+    haveAccount: 'Já tenho conta — entrar',
+    noAccount: 'Ainda não tenho conta — criar',
+    login: 'Entrar',
+    yourUserCode: 'Seu código de usuário',
+    home: 'Início',
+    trip: 'Viagem',
+    profile: 'Perfil',
+    yourTrips: 'Suas viagens',
+    noTripsYet: 'Você ainda não tem nenhuma viagem.',
+    createTrip: 'Criar viagem',
+    joinTrip: 'Participar de viagem',
+    previousTrips: 'Viagens anteriores',
+    tripName: 'Nome da viagem',
+    startDate: 'Data de início',
+    endDate: 'Data de fim',
+    destinations: 'Destinos',
+    addDestination: 'Adicionar destino',
+    save: 'Salvar',
+    tripCode: 'Código da viagem',
+    enterTripCode: 'Código de 12 dígitos',
+    join: 'Entrar na viagem',
+    invalidCode: 'Código inválido ou viagem não encontrada.',
+    schedule: 'Cronograma',
+    map: 'Mapa',
+    docs: 'Docs',
+    gallery: 'Galeria',
+    suggestions: 'Sugestões',
+    members: 'Integrantes',
+    comingSoon: 'Esta área chega em uma fase seguinte do backlog.',
+    inviteMembers: 'Convidar integrantes',
+    inviteByEmail: 'Convidar por e-mail',
+    inviteLinkHint: 'Ou compartilhe este código com quem você quer convidar:',
+    copyCode: 'Copiar código',
+    copied: 'Copiado!',
+    promoteToCoadmin: 'Promover a Coadmin',
+    promoteToAdmin: 'Promover a Admin',
+    roleAdmin: 'Admin',
+    roleCoadmin: 'Coadmin',
+    roleGuest: 'Convidado',
+    auditLog: 'Histórico',
+    noAuditYet: 'Nenhuma atividade registrada ainda.',
+    notifications: 'Notificações',
+    settings: 'Configurações',
+    privacyData: 'Privacidade e dados',
+    logout: 'Sair',
+    language: 'Idioma',
+    countdownDays: (n) => `Faltam ${n} dia(s) para a viagem`,
+    genericError: 'Não foi possível concluir. Tente novamente.',
+    emailInUse: 'Já existe uma conta com este e-mail.',
+    wrongCredentials: 'E-mail ou senha incorretos.',
+  },
+  'en-US': {
+    appName: 'Trippin',
+    onboardingChooseLanguage: 'Choose your language',
+    continue: 'Continue',
+    onboardingProfileTitle: 'Create your profile',
+    name: 'Name',
+    phone: 'Phone (emergency contact)',
+    cpfOptional: 'National ID (optional)',
+    email: 'Email',
+    password: 'Password',
+    createAccount: 'Create account',
+    haveAccount: 'I already have an account — log in',
+    noAccount: "I don't have an account — sign up",
+    login: 'Log in',
+    yourUserCode: 'Your user code',
+    home: 'Home',
+    trip: 'Trip',
+    profile: 'Profile',
+    yourTrips: 'Your trips',
+    noTripsYet: "You don't have any trips yet.",
+    createTrip: 'Create trip',
+    joinTrip: 'Join trip',
+    previousTrips: 'Past trips',
+    tripName: 'Trip name',
+    startDate: 'Start date',
+    endDate: 'End date',
+    destinations: 'Destinations',
+    addDestination: 'Add destination',
+    save: 'Save',
+    tripCode: 'Trip code',
+    enterTripCode: '12-digit code',
+    join: 'Join trip',
+    invalidCode: 'Invalid code or trip not found.',
+    schedule: 'Schedule',
+    map: 'Map',
+    docs: 'Docs',
+    gallery: 'Gallery',
+    suggestions: 'Suggestions',
+    members: 'Members',
+    comingSoon: 'This area ships in a later backlog phase.',
+    inviteMembers: 'Invite members',
+    inviteByEmail: 'Invite by email',
+    inviteLinkHint: 'Or share this code with whoever you want to invite:',
+    copyCode: 'Copy code',
+    copied: 'Copied!',
+    promoteToCoadmin: 'Promote to Co-admin',
+    promoteToAdmin: 'Promote to Admin',
+    roleAdmin: 'Admin',
+    roleCoadmin: 'Co-admin',
+    roleGuest: 'Guest',
+    auditLog: 'History',
+    noAuditYet: 'No activity logged yet.',
+    notifications: 'Notifications',
+    settings: 'Settings',
+    privacyData: 'Privacy & data',
+    logout: 'Log out',
+    language: 'Language',
+    countdownDays: (n) => `${n} day(s) until the trip`,
+    genericError: 'Could not complete. Please try again.',
+    emailInUse: 'An account with this email already exists.',
+    wrongCredentials: 'Wrong email or password.',
+  },
+};
+// Demais 8 idiomas do roadmap ficam como stub — caem em EN-US como fallback (decisão #11).
+function t(lang, key, ...args) {
+  const dict = I18N[lang] || I18N['en-US'];
+  const entry = dict[key] !== undefined ? dict[key] : I18N['en-US'][key];
+  return typeof entry === 'function' ? entry(...args) : entry;
+}
+
+/* =========================================================================
+   TrippinAPI — camada de persistência mock (localStorage).
+   Implementa hoje a interface que, na Fase A/E2, passa a chamar Supabase.
+   Nenhuma tela deve tocar localStorage diretamente — só via TrippinAPI.
+   ========================================================================= */
+const STORAGE_KEYS = { users: 'trippin_users_v1', trips: 'trippin_trips_v1', session: 'trippin_session_v1' };
+
+function readStore(key) {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : null;
+  } catch (e) { return null; }
+}
+function writeStore(key, value) {
+  localStorage.setItem(key, JSON.stringify(value));
+}
+function randomDigits(n) {
+  let s = '';
+  for (let i = 0; i < n; i++) s += Math.floor(Math.random() * 10);
+  return s;
+}
+function uid() {
+  return 'id_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8);
+}
+
+const TrippinAPI = {
+  _users() { return readStore(STORAGE_KEYS.users) || []; },
+  _saveUsers(list) { writeStore(STORAGE_KEYS.users, list); },
+  _trips() { return readStore(STORAGE_KEYS.trips) || []; },
+  _saveTrips(list) { writeStore(STORAGE_KEYS.trips, list); },
+
+  // ---- H3.1 Cadastro e login por e-mail + senha ----
+  // Mock: senha guardada em texto puro em localStorage só para fins de protótipo local.
+  // Em E2, isto vira uma chamada a Supabase Auth — nenhuma outra tela precisa mudar.
+  signUp({ email, password, name }) {
+    const users = this._users();
+    if (users.some(u => u.email.toLowerCase() === email.toLowerCase())) {
+      throw new Error('EMAIL_IN_USE');
+    }
+    const user = {
+      id: uid(),
+      email,
+      password,
+      name: name || '',
+      phone: '',
+      cpf: '',
+      language: 'pt-BR',
+      userCode: this._generateUniqueUserCode(),
+      onboarded: false,
+      createdAt: new Date().toISOString(),
+    };
+    users.push(user);
+    this._saveUsers(users);
+    this.setSession(user.id);
+    return user;
+  },
+  logIn({ email, password }) {
+    const users = this._users();
+    const user = users.find(u => u.email.toLowerCase() === email.toLowerCase() && u.password === password);
+    if (!user) throw new Error('WRONG_CREDENTIALS');
+    this.setSession(user.id);
+    return user;
+  },
+  setSession(userId) { writeStore(STORAGE_KEYS.session, { userId }); },
+  getSession() {
+    const s = readStore(STORAGE_KEYS.session);
+    if (!s) return null;
+    return this._users().find(u => u.id === s.userId) || null;
+  },
+  logOut() { localStorage.removeItem(STORAGE_KEYS.session); },
+
+  // ---- H3.2 / H3.3 Onboarding + CPF opcional ----
+  _generateUniqueUserCode() {
+    const users = this._users();
+    let code;
+    do { code = randomDigits(6); } while (users.some(u => u.userCode === code));
+    return code;
+  },
+  updateProfile(userId, patch) {
+    const users = this._users();
+    const idx = users.findIndex(u => u.id === userId);
+    if (idx === -1) throw new Error('USER_NOT_FOUND');
+    users[idx] = Object.assign({}, users[idx], patch);
+    this._saveUsers(users);
+    return users[idx];
+  },
+
+  // ---- H4.1 Criar viagem ----
+  _generateUniqueTripCode() {
+    const trips = this._trips();
+    let code;
+    do { code = randomDigits(12); } while (trips.some(tr => tr.code === code));
+    return code;
+  },
+  createTrip({ name, startDate, endDate, destinations, ownerId }) {
+    const trip = {
+      id: uid(),
+      code: this._generateUniqueTripCode(),
+      name, startDate, endDate,
+      destinations: destinations || [],
+      members: [{ userId: ownerId, role: 'admin', joinedAt: new Date().toISOString() }],
+      auditLog: [],
+      createdAt: new Date().toISOString(),
+    };
+    const trips = this._trips();
+    trips.push(trip);
+    this._saveTrips(trips);
+    this.addAuditEntry(trip.id, ownerId, `criou a viagem "${name}"`);
+    return trip;
+  },
+
+  // ---- H4.2 Participar por código ----
+  joinTrip({ code, userId }) {
+    const trips = this._trips();
+    const trip = trips.find(tr => tr.code === code);
+    if (!trip) throw new Error('TRIP_NOT_FOUND');
+    if (!trip.members.some(m => m.userId === userId)) {
+      trip.members.push({ userId, role: 'convidado', joinedAt: new Date().toISOString() });
+      this._saveTrips(trips);
+      this.addAuditEntry(trip.id, userId, 'entrou na viagem');
+    }
+    return trip;
+  },
+
+  listTripsForUser(userId) {
+    return this._trips().filter(tr => tr.members.some(m => m.userId === userId));
+  },
+  getTrip(tripId) { return this._trips().find(tr => tr.id === tripId) || null; },
+
+  getMemberRole(tripId, userId) {
+    const trip = this.getTrip(tripId);
+    if (!trip) return null;
+    const m = trip.members.find(m => m.userId === userId);
+    return m ? m.role : null;
+  },
+
+  // ---- H4.4 Papéis e permissões — só Admin promove; múltiplos Admin/Coadmin possíveis ----
+  promoteMember(tripId, actingUserId, targetUserId, newRole) {
+    const trips = this._trips();
+    const trip = trips.find(tr => tr.id === tripId);
+    if (!trip) throw new Error('TRIP_NOT_FOUND');
+    const actingRole = (trip.members.find(m => m.userId === actingUserId) || {}).role;
+    if (actingRole !== 'admin') throw new Error('FORBIDDEN');
+    const target = trip.members.find(m => m.userId === targetUserId);
+    if (!target) throw new Error('MEMBER_NOT_FOUND');
+    target.role = newRole;
+    this._saveTrips(trips);
+    this.addAuditEntry(tripId, actingUserId, `promoveu um integrante a ${newRole}`);
+    return trip;
+  },
+
+  // ---- H4.5 Histórico leve de auditoria ----
+  addAuditEntry(tripId, userId, message) {
+    const trips = this._trips();
+    const trip = trips.find(tr => tr.id === tripId);
+    if (!trip) return;
+    const user = this._users().find(u => u.id === userId);
+    trip.auditLog.unshift({
+      id: uid(),
+      userName: user ? user.name || user.email : 'alguém',
+      message,
+      at: new Date().toISOString(),
+    });
+    this._saveTrips(trips);
+  },
+};
+
+/* =========================================================================
+   Componentes base reutilizáveis (E1 / H1.2)
+   ========================================================================= */
+function Card({ children }) { return <div className="card">{children}</div>; }
+
+function EmptyState({ title, actionLabel, onAction }) {
+  return (
+    <div className="empty-state">
+      <p>{title}</p>
+      {actionLabel && <button className="btn btn-primary" onClick={onAction}>{actionLabel}</button>}
+    </div>
+  );
+}
+
+function RoleBadge({ role, lang }) {
+  const map = { admin: ['badge-admin', 'roleAdmin'], coadmin: ['badge-coadmin', 'roleCoadmin'], convidado: ['badge-convidado', 'roleGuest'] };
+  const [cls, key] = map[role] || map.convidado;
+  return <span className={`badge ${cls}`}>{t(lang, key)}</span>;
+}
+
+function TabBar({ active, onChange, lang }) {
+  const items = [
+    { key: 'home', label: t(lang, 'home'), icon: '🏠' },
+    { key: 'trip', label: t(lang, 'trip'), icon: '🧳' },
+    { key: 'profile', label: t(lang, 'profile'), icon: '👤' },
+  ];
+  return (
+    <div className="tab-bar">
+      {items.map(it => (
+        <button key={it.key} className={active === it.key ? 'active' : ''} onClick={() => onChange(it.key)}>
+          <span className="tab-icon">{it.icon}</span>
+          <span>{it.label}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function SegmentedTabs({ tabs, active, onChange }) {
+  return (
+    <div className="segmented-tabs">
+      {tabs.map(tab => (
+        <button key={tab.key} className={active === tab.key ? 'active' : ''} onClick={() => onChange(tab.key)}>
+          {tab.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function Drawer({ open, onClose, lang, onLogout, onNavigate }) {
+  if (!open) return null;
+  return (
+    <React.Fragment>
+      <div className="drawer-backdrop" onClick={onClose} />
+      <div className="drawer">
+        <h2>{t(lang, 'appName')}</h2>
+        <button onClick={() => onNavigate('notifications')}>🔔 {t(lang, 'notifications')}</button>
+        <button onClick={() => onNavigate('settings')}>⚙️ {t(lang, 'settings')}</button>
+        <button onClick={() => onNavigate('privacy')}>🔒 {t(lang, 'privacyData')}</button>
+        <button onClick={onLogout} style={{ color: 'var(--color-danger)' }}>🚪 {t(lang, 'logout')}</button>
+      </div>
+    </React.Fragment>
+  );
+}
+
+function BottomSheet({ open, onClose, children }) {
+  if (!open) return null;
+  return (
+    <div className="sheet-backdrop" onClick={onClose}>
+      <div className="sheet" onClick={e => e.stopPropagation()}>
+        <div className="sheet-handle" />
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function TopBar({ title, onMenu, onBack }) {
+  return (
+    <div className="top-bar">
+      {onBack
+        ? <button className="icon-btn" onClick={onBack}>←</button>
+        : <button className="icon-btn" onClick={onMenu}>☰</button>}
+      <h1>{title}</h1>
+      <div style={{ width: 28 }} />
+    </div>
+  );
+}
+
+/* =========================================================================
+   Telas — Onboarding (E3 / H3.2)
+   ========================================================================= */
+function LanguageScreen({ onChoose }) {
+  return (
+    <div className="screen">
+      <h2>{t('pt-BR', 'onboardingChooseLanguage')} / {t('en-US', 'onboardingChooseLanguage')}</h2>
+      <div className="field">
+        <button className="btn btn-primary" style={{ marginBottom: 8 }} onClick={() => onChoose('pt-BR')}>Português (Brasil)</button>
+        <button className="btn btn-secondary" onClick={() => onChoose('en-US')}>English (US)</button>
+      </div>
+    </div>
+  );
+}
+
+function AuthScreen({ lang, mode, setMode, onAuthed }) {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [name, setName] = useState('');
+  const [error, setError] = useState('');
+
+  function submit(e) {
+    e.preventDefault();
+    setError('');
+    try {
+      if (mode === 'signup') {
+        const user = TrippinAPI.signUp({ email, password, name });
+        onAuthed(user);
+      } else {
+        const user = TrippinAPI.logIn({ email, password });
+        onAuthed(user);
+      }
+    } catch (err) {
+      if (err.message === 'EMAIL_IN_USE') setError(t(lang, 'emailInUse'));
+      else if (err.message === 'WRONG_CREDENTIALS') setError(t(lang, 'wrongCredentials'));
+      else setError(t(lang, 'genericError'));
+    }
+  }
+
+  return (
+    <div className="screen">
+      <h2>{mode === 'signup' ? t(lang, 'createAccount') : t(lang, 'login')}</h2>
+      {error && <div className="banner-error">{error}</div>}
+      <form onSubmit={submit}>
+        {mode === 'signup' && (
+          <div className="field">
+            <label>{t(lang, 'name')}</label>
+            <input value={name} onChange={e => setName(e.target.value)} required />
+          </div>
+        )}
+        <div className="field">
+          <label>{t(lang, 'email')}</label>
+          <input type="email" value={email} onChange={e => setEmail(e.target.value)} required />
+        </div>
+        <div className="field">
+          <label>{t(lang, 'password')}</label>
+          <input type="password" value={password} onChange={e => setPassword(e.target.value)} required minLength={6} />
+        </div>
+        <button className="btn btn-primary" type="submit">
+          {mode === 'signup' ? t(lang, 'createAccount') : t(lang, 'login')}
+        </button>
+      </form>
+      <p className="hint" style={{ textAlign: 'center', marginTop: 16, cursor: 'pointer' }}
+         onClick={() => setMode(mode === 'signup' ? 'login' : 'signup')}>
+        {mode === 'signup' ? t(lang, 'haveAccount') : t(lang, 'noAccount')}
+      </p>
+    </div>
+  );
+}
+
+function OnboardingProfileScreen({ lang, user, onDone }) {
+  const [name, setName] = useState(user.name || '');
+  const [phone, setPhone] = useState(user.phone || '');
+  const [cpf, setCpf] = useState(user.cpf || '');
+
+  function submit(e) {
+    e.preventDefault();
+    const updated = TrippinAPI.updateProfile(user.id, { name, phone, cpf, onboarded: true });
+    onDone(updated);
+  }
+
+  return (
+    <div className="screen">
+      <h2>{t(lang, 'onboardingProfileTitle')}</h2>
+      <form onSubmit={submit}>
+        <div className="field">
+          <label>{t(lang, 'name')}</label>
+          <input value={name} onChange={e => setName(e.target.value)} required />
+        </div>
+        <div className="field">
+          <label>{t(lang, 'phone')}</label>
+          <input value={phone} onChange={e => setPhone(e.target.value)} />
+        </div>
+        <div className="field">
+          <label>{t(lang, 'cpfOptional')}</label>
+          <input value={cpf} onChange={e => setCpf(e.target.value)} />
+          <div className="hint">{lang === 'pt-BR' ? 'Nunca obrigatório para usar o app.' : 'Never required to use the app.'}</div>
+        </div>
+        <button className="btn btn-primary" type="submit">{t(lang, 'continue')}</button>
+      </form>
+      <div className="hint" style={{ marginTop: 16, textAlign: 'center' }}>
+        {t(lang, 'yourUserCode')}: <strong>{user.userCode}</strong>
+      </div>
+    </div>
+  );
+}
+
+/* =========================================================================
+   Telas — Home (E4)
+   ========================================================================= */
+function daysUntil(dateStr) {
+  const diff = new Date(dateStr + 'T00:00:00') - new Date(new Date().toDateString());
+  return Math.max(0, Math.ceil(diff / 86400000));
+}
+
+function HomeScreen({ lang, user, onOpenTrip, onGoCreate, onGoJoin }) {
+  const trips = TrippinAPI.listTripsForUser(user.id);
+  const now = new Date();
+  const active = trips.filter(tr => new Date(tr.endDate) >= now);
+  const past = trips.filter(tr => new Date(tr.endDate) < now);
+
+  return (
+    <div className="screen">
+      <h2>{t(lang, 'yourTrips')}</h2>
+      <div className="btn-block-row" style={{ marginBottom: 16 }}>
+        <button className="btn btn-primary" onClick={onGoCreate}>{t(lang, 'createTrip')}</button>
+        <button className="btn btn-secondary" onClick={onGoJoin}>{t(lang, 'joinTrip')}</button>
+      </div>
+
+      {active.length === 0
+        ? <EmptyState title={t(lang, 'noTripsYet')} />
+        : active.map(tr => (
+            <div key={tr.id} onClick={() => onOpenTrip(tr.id)} style={{ cursor: 'pointer' }}>
+              <Card>
+                <h3>{tr.name}</h3>
+                <p>{tr.startDate} → {tr.endDate}</p>
+                <p>{t(lang, 'countdownDays', daysUntil(tr.startDate))}</p>
+              </Card>
+            </div>
+          ))
+      }
+
+      {past.length > 0 && (
+        <React.Fragment>
+          <h2 style={{ marginTop: 24 }}>{t(lang, 'previousTrips')}</h2>
+          {past.map(tr => (
+            <div key={tr.id} onClick={() => onOpenTrip(tr.id)} style={{ cursor: 'pointer' }}>
+              <Card><h3>{tr.name}</h3><p>{tr.startDate} → {tr.endDate}</p></Card>
+            </div>
+          ))}
+        </React.Fragment>
+      )}
+    </div>
+  );
+}
+
+// Busca de destino: lista estática curada. Busca real via Nominatim/OSM é escopo do
+// épico E9 (Mapa), fora da Fase A — este é só um placeholder para não travar H4.1.
+const DESTINATION_SUGGESTIONS = [
+  'Lisboa, Portugal', 'Porto, Portugal', 'Roma, Itália', 'Paris, França',
+  'Buenos Aires, Argentina', 'Santiago, Chile', 'Rio de Janeiro, Brasil',
+  'São Paulo, Brasil', 'Nova York, EUA', 'Tóquio, Japão', 'Lima, Peru',
+  'Cidade do México, México', 'Barcelona, Espanha', 'Amsterdã, Holanda',
+];
+
+function CreateTripScreen({ lang, user, onCreated, onCancel }) {
+  const [name, setName] = useState('');
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+  const [destInput, setDestInput] = useState('');
+  const [destinations, setDestinations] = useState([]);
+
+  const suggestions = destInput.length >= 3
+    ? DESTINATION_SUGGESTIONS.filter(d => d.toLowerCase().includes(destInput.toLowerCase()))
+    : [];
+
+  function addDestination(d) {
+    if (d && !destinations.includes(d)) setDestinations([...destinations, d]);
+    setDestInput('');
+  }
+
+  function submit(e) {
+    e.preventDefault();
+    const trip = TrippinAPI.createTrip({ name, startDate, endDate, destinations, ownerId: user.id });
+    onCreated(trip.id);
+  }
+
+  return (
+    <div className="screen">
+      <h2>{t(lang, 'createTrip')}</h2>
+      <form onSubmit={submit}>
+        <div className="field">
+          <label>{t(lang, 'tripName')}</label>
+          <input value={name} onChange={e => setName(e.target.value)} required />
+        </div>
+        <div className="field">
+          <label>{t(lang, 'startDate')}</label>
+          <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} required />
+        </div>
+        <div className="field">
+          <label>{t(lang, 'endDate')}</label>
+          <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} required min={startDate || undefined} />
+        </div>
+        <div className="field">
+          <label>{t(lang, 'destinations')}</label>
+          <input value={destInput} onChange={e => setDestInput(e.target.value)}
+                 placeholder={lang === 'pt-BR' ? 'Digite ao menos 3 letras' : 'Type at least 3 letters'} />
+          {suggestions.length > 0 && (
+            <div className="card" style={{ marginTop: 6 }}>
+              {suggestions.map(s => (
+                <div key={s} className="hint" style={{ cursor: 'pointer', padding: '4px 0' }} onClick={() => addDestination(s)}>
+                  {s}
+                </div>
+              ))}
+            </div>
+          )}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
+            {destinations.map(d => (
+              <span key={d} className="badge badge-convidado" onClick={() => setDestinations(destinations.filter(x => x !== d))} style={{ cursor: 'pointer' }}>
+                {d} ✕
+              </span>
+            ))}
+          </div>
+        </div>
+        <div className="btn-block-row">
+          <button className="btn btn-secondary" type="button" onClick={onCancel}>✕</button>
+          <button className="btn btn-primary" type="submit">{t(lang, 'save')}</button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function JoinTripScreen({ lang, user, onJoined, onCancel }) {
+  const [code, setCode] = useState('');
+  const [error, setError] = useState('');
+
+  function submit(e) {
+    e.preventDefault();
+    setError('');
+    try {
+      const trip = TrippinAPI.joinTrip({ code: code.trim(), userId: user.id });
+      onJoined(trip.id);
+    } catch (err) {
+      setError(t(lang, 'invalidCode'));
+    }
+  }
+
+  return (
+    <div className="screen">
+      <h2>{t(lang, 'joinTrip')}</h2>
+      {error && <div className="banner-error">{error}</div>}
+      <form onSubmit={submit}>
+        <div className="field">
+          <label>{t(lang, 'tripCode')}</label>
+          <input value={code} onChange={e => setCode(e.target.value)} placeholder={t(lang, 'enterTripCode')} maxLength={12} required />
+        </div>
+        <div className="btn-block-row">
+          <button className="btn btn-secondary" type="button" onClick={onCancel}>✕</button>
+          <button className="btn btn-primary" type="submit">{t(lang, 'join')}</button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+/* =========================================================================
+   Telas — Viagem (E4 Integrantes; demais abas ficam "em breve" até suas fases)
+   ========================================================================= */
+function MembersScreen({ lang, trip, user, onChanged }) {
+  const [sheetTarget, setSheetTarget] = useState(null);
+  const [inviteOpen, setInviteOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const myRole = TrippinAPI.getMemberRole(trip.id, user.id);
+  const users = TrippinAPI._users();
+
+  function memberName(userId) {
+    const u = users.find(x => x.id === userId);
+    return u ? (u.name || u.email) : userId;
+  }
+
+  function promote(target, newRole) {
+    TrippinAPI.promoteMember(trip.id, user.id, target.userId, newRole);
+    setSheetTarget(null);
+    onChanged();
+  }
+
+  function copyCode() {
+    navigator.clipboard && navigator.clipboard.writeText(trip.code).catch(() => {});
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  }
+
+  return (
+    <div>
+      <button className="btn btn-primary" style={{ marginBottom: 12 }} onClick={() => setInviteOpen(true)}>
+        {t(lang, 'inviteMembers')}
+      </button>
+
+      {trip.members.map(m => (
+        <Card key={m.userId}>
+          <div className="row-between">
+            <div>
+              <h3>{memberName(m.userId)}</h3>
+              <RoleBadge role={m.role} lang={lang} />
+            </div>
+            {/* Convidado nunca vê ações de edição — a ação simplesmente não é renderizada (02-UXUI-spec.md §5) */}
+            {myRole === 'admin' && m.role !== 'admin' && (
+              <button className="btn btn-secondary" style={{ width: 'auto' }} onClick={() => setSheetTarget(m)}>
+                ⋯
+              </button>
+            )}
+          </div>
+        </Card>
+      ))}
+
+      <h3 style={{ marginTop: 20 }}>{t(lang, 'auditLog')}</h3>
+      {trip.auditLog.length === 0
+        ? <p className="hint">{t(lang, 'noAuditYet')}</p>
+        : trip.auditLog.map(entry => (
+            <div key={entry.id} className="audit-item">
+              <strong>{entry.userName}</strong> {entry.message} — {new Date(entry.at).toLocaleString(lang)}
+            </div>
+          ))
+      }
+
+      <BottomSheet open={!!sheetTarget} onClose={() => setSheetTarget(null)}>
+        {sheetTarget && (
+          <div>
+            <h3>{memberName(sheetTarget.userId)}</h3>
+            {sheetTarget.role === 'convidado' && (
+              <button className="btn btn-primary" style={{ marginBottom: 8 }} onClick={() => promote(sheetTarget, 'coadmin')}>
+                {t(lang, 'promoteToCoadmin')}
+              </button>
+            )}
+            {sheetTarget.role === 'coadmin' && (
+              <button className="btn btn-primary" onClick={() => promote(sheetTarget, 'admin')}>
+                {t(lang, 'promoteToAdmin')}
+              </button>
+            )}
+          </div>
+        )}
+      </BottomSheet>
+
+      <BottomSheet open={inviteOpen} onClose={() => setInviteOpen(false)}>
+        <h3>{t(lang, 'inviteMembers')}</h3>
+        {/* Envio real de e-mail depende de Edge Function (E2) — aqui só registramos a intenção. */}
+        <div className="field">
+          <label>{t(lang, 'inviteByEmail')}</label>
+          <input type="email" placeholder="nome@exemplo.com" />
+        </div>
+        <p className="hint">{t(lang, 'inviteLinkHint')}</p>
+        <div className="code-display">{trip.code}</div>
+        <button className="btn btn-secondary" onClick={copyCode}>{copied ? t(lang, 'copied') : t(lang, 'copyCode')}</button>
+      </BottomSheet>
+    </div>
+  );
+}
+
+function TripScreen({ lang, tripId, user, onBack, refreshKey, onChanged }) {
+  const [activeTab, setActiveTab] = useState('schedule');
+  const trip = TrippinAPI.getTrip(tripId);
+  if (!trip) return <div className="screen"><EmptyState title={t(lang, 'invalidCode')} /></div>;
+
+  const tabs = [
+    { key: 'schedule', label: t(lang, 'schedule') },
+    { key: 'map', label: t(lang, 'map') },
+    { key: 'docs', label: t(lang, 'docs') },
+    { key: 'gallery', label: t(lang, 'gallery') },
+    { key: 'suggestions', label: t(lang, 'suggestions') },
+    { key: 'members', label: t(lang, 'members') },
+  ];
+
+  return (
+    <div className="screen">
+      <h2>{trip.name}</h2>
+      <SegmentedTabs tabs={tabs} active={activeTab} onChange={setActiveTab} />
+      {activeTab === 'members'
+        ? <MembersScreen lang={lang} trip={trip} user={user} onChanged={onChanged} />
+        : <EmptyState title={t(lang, 'comingSoon')} />}
+    </div>
+  );
+}
+
+function ProfileScreen({ lang, user, onUpdate, onChangeLanguage }) {
+  const [name, setName] = useState(user.name || '');
+  const [phone, setPhone] = useState(user.phone || '');
+  const [cpf, setCpf] = useState(user.cpf || '');
+
+  function save(e) {
+    e.preventDefault();
+    onUpdate(TrippinAPI.updateProfile(user.id, { name, phone, cpf }));
+  }
+
+  return (
+    <div className="screen">
+      <h2>{t(lang, 'profile')}</h2>
+      <p className="hint">{t(lang, 'yourUserCode')}: <strong>{user.userCode}</strong></p>
+      <form onSubmit={save}>
+        <div className="field"><label>{t(lang, 'name')}</label><input value={name} onChange={e => setName(e.target.value)} /></div>
+        <div className="field"><label>{t(lang, 'phone')}</label><input value={phone} onChange={e => setPhone(e.target.value)} /></div>
+        <div className="field"><label>{t(lang, 'cpfOptional')}</label><input value={cpf} onChange={e => setCpf(e.target.value)} /></div>
+        <div className="field">
+          <label>{t(lang, 'language')}</label>
+          <select value={lang} onChange={e => onChangeLanguage(e.target.value)}>
+            <option value="pt-BR">Português (Brasil)</option>
+            <option value="en-US">English (US)</option>
+          </select>
+        </div>
+        <button className="btn btn-primary" type="submit">{t(lang, 'save')}</button>
+      </form>
+    </div>
+  );
+}
+
+function PlaceholderScreen({ lang, title, onBack }) {
+  return (
+    <div className="screen">
+      <h2>{title}</h2>
+      <EmptyState title={t(lang, 'comingSoon')} />
+    </div>
+  );
+}
+
+/* =========================================================================
+   App — orquestração de navegação (sem router: estado local é suficiente
+   para o número de telas da Fase A)
+   ========================================================================= */
+function App() {
+  const [bootUser, setBootUser] = useState(() => TrippinAPI.getSession());
+  const [lang, setLang] = useState(() => (bootUser && bootUser.language) || 'pt-BR');
+  const [authMode, setAuthMode] = useState('signup');
+  const [screen, setScreen] = useState(() => {
+    if (!bootUser) return 'language';
+    if (!bootUser.onboarded) return 'onboarding-profile';
+    return 'home';
+  });
+  const [tripId, setTripId] = useState(null);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [, forceRefresh] = useState(0);
+  const bump = () => forceRefresh(n => n + 1);
+
+  const user = bootUser ? TrippinAPI._users().find(u => u.id === bootUser.id) : null;
+
+  function handleChooseLanguage(l) { setLang(l); setScreen('auth'); }
+  function handleAuthed(u) {
+    setBootUser(u);
+    setLang(u.language || lang);
+    setScreen(u.onboarded ? 'home' : 'onboarding-profile');
+  }
+  function handleOnboarded(u) { setBootUser(u); setScreen('home'); }
+  function handleLogout() { TrippinAPI.logOut(); setBootUser(null); setScreen('language'); setDrawerOpen(false); }
+  function handleChangeLanguage(l) {
+    setLang(l);
+    if (user) TrippinAPI.updateProfile(user.id, { language: l });
+    bump();
+  }
+
+  if (screen === 'language') return <LanguageScreen onChoose={handleChooseLanguage} />;
+  if (screen === 'auth') return <AuthScreen lang={lang} mode={authMode} setMode={setAuthMode} onAuthed={handleAuthed} />;
+  if (screen === 'onboarding-profile') return <OnboardingProfileScreen lang={lang} user={user} onDone={handleOnboarded} />;
+
+  const tabScreen = ['home', 'create-trip', 'join-trip'].includes(screen) ? 'home'
+    : screen === 'trip' ? 'trip'
+    : screen === 'profile' ? 'profile'
+    : 'home';
+
+  const titles = { home: t(lang, 'appName'), trip: t(lang, 'trip'), profile: t(lang, 'profile'),
+                   'create-trip': t(lang, 'createTrip'), 'join-trip': t(lang, 'joinTrip'),
+                   notifications: t(lang, 'notifications'), settings: t(lang, 'settings'), privacy: t(lang, 'privacyData') };
+
+  return (
+    <div className="app-shell">
+      <TopBar
+        title={titles[screen] || t(lang, 'appName')}
+        onMenu={() => setDrawerOpen(true)}
+        onBack={['create-trip', 'join-trip', 'notifications', 'settings', 'privacy'].includes(screen) ? () => setScreen('home') : null}
+      />
+
+      {screen === 'home' && (
+        <HomeScreen lang={lang} user={user}
+          onOpenTrip={(id) => { setTripId(id); setScreen('trip'); }}
+          onGoCreate={() => setScreen('create-trip')}
+          onGoJoin={() => setScreen('join-trip')} />
+      )}
+      {screen === 'create-trip' && (
+        <CreateTripScreen lang={lang} user={user}
+          onCreated={(id) => { setTripId(id); setScreen('trip'); }}
+          onCancel={() => setScreen('home')} />
+      )}
+      {screen === 'join-trip' && (
+        <JoinTripScreen lang={lang} user={user}
+          onJoined={(id) => { setTripId(id); setScreen('trip'); }}
+          onCancel={() => setScreen('home')} />
+      )}
+      {screen === 'trip' && (
+        <TripScreen lang={lang} tripId={tripId} user={user} onChanged={bump} />
+      )}
+      {screen === 'profile' && (
+        <ProfileScreen lang={lang} user={user} onUpdate={bump} onChangeLanguage={handleChangeLanguage} />
+      )}
+      {['notifications', 'settings', 'privacy'].includes(screen) && (
+        <PlaceholderScreen lang={lang} title={titles[screen]} />
+      )}
+
+      <Drawer open={drawerOpen} onClose={() => setDrawerOpen(false)} lang={lang} onLogout={handleLogout}
+        onNavigate={(dest) => { setDrawerOpen(false); setScreen(dest); }} />
+
+      <TabBar active={tabScreen} lang={lang} onChange={(key) => setScreen(key)} />
+    </div>
+  );
+}
+
+class ErrorBoundary extends React.Component {
+  constructor(props) { super(props); this.state = { hasError: false }; }
+  static getDerivedStateFromError() { return { hasError: true }; }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{ padding: 24, fontFamily: 'system-ui, sans-serif' }}>
+          <h2 style={{ color: '#B3413A' }}>Algo deu errado ao carregar o Trippin</h2>
+          <p style={{ color: '#6B6259' }}>Recarregue a página. Se o problema persistir, avise o time.</p>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+const rootEl = document.getElementById('root');
+rootEl.dataset.mounted = 'true';
+ReactDOM.createRoot(rootEl).render(<ErrorBoundary><App /></ErrorBoundary>);
+</script>
+
+<script>
+  // Transformação manual via Babel.transform (em vez do scanner automático de
+  // <script type="text/babel">), que em algumas versões do CDN tenta buscar presets
+  // adicionais de uma URL sem versão e quebra com "Cannot use import statement
+  // outside a module". Chamar Babel.transform diretamente evita esse caminho.
+  var jsxSource = document.getElementById('app-source').textContent;
+  var compiled = Babel.transform(jsxSource, { presets: ['react'] }).code;
+  var executable = document.createElement('script');
+  executable.textContent = compiled;
+  document.body.appendChild(executable);
+</script>
+</body>
+</html>
