@@ -4,11 +4,12 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Trippin</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23E2673A'/%3E%3Ctext x='16' y='22' font-size='18' text-anchor='middle' fill='white' font-family='sans-serif'%3ET%3C/text%3E%3C/svg%3E" />
 
 <!-- Decisão de tecnologia #1 (00-visao-de-negocio-final.md §10): front em arquivo único
      HTML + React 18 via CDN, sem bundler/build. Babel standalone permite JSX inline. -->
-<script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
-<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 <script src="https://unpkg.com/@babel/standalone@7.23.5/babel.min.js"></script>
 <!-- E2: cliente Supabase real (Auth + Postgres + Storage via RLS) -->
 <script src="https://unpkg.com/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
@@ -459,19 +460,14 @@ const TrippinAPI = {
 
   // ---- H4.2 Participar por código ----
   // Quem ainda não é integrante não pode fazer SELECT direto em trips (correto,
-  // protege dados de outras viagens) — por isso a busca por código passa por
-  // uma função security definer que só revela a viagem em caso de match exato.
-  async joinTrip({ code, userId }) {
-    const { data: tripRows, error: tripErr } = await supabaseClient
-      .rpc('get_trip_by_code', { p_code: code });
-    const tripRow = tripRows && tripRows[0];
-    if (tripErr || !tripRow) throw new Error('TRIP_NOT_FOUND');
-    const { error: joinErr } = await supabaseClient
-      .from('trip_members')
-      .insert({ trip_id: tripRow.id, user_id: userId, role: 'convidado' });
-    if (joinErr && joinErr.code !== '23505') throw joinErr; // 23505 = já é integrante
-    if (!joinErr) await this.addAuditEntry(tripRow.id, userId, 'entrou na viagem');
-    return mapTrip(tripRow);
+  // protege dados de outras viagens). "Buscar + entrar" viram uma única
+  // função security definer (join_trip_by_code) — é a ÚNICA forma de virar
+  // convidado; não existe mais um insert direto liberado por RLS, exatamente
+  // para impedir que alguém vire membro de uma viagem só adivinhando o id.
+  async joinTrip({ code }) {
+    const { data, error } = await supabaseClient.rpc('join_trip_by_code', { p_code: code });
+    if (error) throw new Error('TRIP_NOT_FOUND');
+    return mapTrip(data);
   },
 
   async listTripsForUser(userId) {
@@ -481,26 +477,27 @@ const TrippinAPI = {
     return (data || []).map(row => mapTrip(row.trip)).filter(Boolean);
   },
 
-  // Busca a viagem + integrantes (com nome via join em profiles) + histórico
-  // de auditoria numa só chamada, para as telas de Viagem/Integrantes.
+  // Busca a viagem + integrantes + histórico de auditoria. Nomes de outros
+  // integrantes vêm de get_trip_member_profiles (não de um join direto em
+  // profiles) — essa função só devolve id/nome/e-mail, nunca CPF/telefone,
+  // mesmo que a policy de profiles algum dia mude.
   async getTripFull(tripId) {
-    const [tripRes, membersRes, auditRes] = await Promise.all([
+    const [tripRes, membersRes, auditRes, namesRes] = await Promise.all([
       supabaseClient.from('trips').select('*').eq('id', tripId).maybeSingle(),
-      supabaseClient.from('trip_members')
-        .select('user_id, role, joined_at, profile:profiles(name, email)')
-        .eq('trip_id', tripId),
-      supabaseClient.from('audit_log')
-        .select('id, message, created_at, profile:profiles(name, email)')
+      supabaseClient.from('trip_members').select('user_id, role, joined_at').eq('trip_id', tripId),
+      supabaseClient.from('audit_log').select('id, message, created_at, user_id')
         .eq('trip_id', tripId).order('created_at', { ascending: false }),
+      supabaseClient.rpc('get_trip_member_profiles', { p_trip_id: tripId }),
     ]);
     if (tripRes.error || !tripRes.data) return null;
+    const nameByUserId = new Map((namesRes.data || []).map(p => [p.user_id, p.name || p.email]));
     const members = (membersRes.data || []).map(m => ({
       userId: m.user_id, role: m.role, joinedAt: m.joined_at,
-      name: m.profile ? (m.profile.name || m.profile.email) : m.user_id,
+      name: nameByUserId.get(m.user_id) || m.user_id,
     }));
     const auditLog = (auditRes.data || []).map(a => ({
       id: a.id, message: a.message, at: a.created_at,
-      userName: a.profile ? (a.profile.name || a.profile.email) : 'alguém',
+      userName: nameByUserId.get(a.user_id) || 'alguém',
     }));
     return { trip: mapTrip(tripRes.data), members, auditLog };
   },
@@ -875,7 +872,7 @@ function JoinTripScreen({ lang, user, onJoined, onCancel }) {
     e.preventDefault();
     setError('');
     try {
-      const trip = await TrippinAPI.joinTrip({ code: code.trim(), userId: user.id });
+      const trip = await TrippinAPI.joinTrip({ code: code.trim() });
       onJoined(trip.id);
     } catch (err) {
       setError(t(lang, 'invalidCode'));

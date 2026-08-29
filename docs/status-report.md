@@ -4,22 +4,27 @@
 |---|---|
 | **Tipo** | Relatório de status gerencial — atualizado a cada ciclo, não é parte da cadeia numerada `00→07` |
 | **Base** | `00-visao-de-negocio-final.md`, `02-UXUI-spec.md`, `03-backlog.md` |
-| **Atualização atual** | 2026-08-29 (ciclo 5 — frontend conectado ao Supabase real) |
-| **Atualização anterior** | 2026-08-29 (ciclo 4 — E2: Supabase e GitHub reais) |
+| **Atualização atual** | 2026-08-29 (ciclo 6 — auditoria de segurança + arquitetura de crescimento) |
+| **Atualização anterior** | 2026-08-29 (ciclo 5 — frontend conectado ao Supabase real) |
 | **Como manter** | A cada novo ciclo: atualizar seções 1–4 com o estado atual e adicionar uma linha em "Histórico" (seção 6). Não reescrever o histórico de ciclos passados. |
 
 ---
 
 ## 1. Resumo executivo
 
-**Fase A (E1/E2/E3/E4) fechada de ponta a ponta.** O app publicado deixou de ser um mock — fala de
-verdade com o Supabase real: cadastro/login, criação de perfil, criação de viagem, entrada por
-código e promoção de papéis passam pelo banco com RLS, testados com dois usuários reais num
-navegador headless (não só revisão de código). No caminho, o teste real encontrou e corrigiu **dois
-bugs genuínos de RLS** que só apareciam com tráfego de verdade — nenhum dos dois era visível
-olhando o SQL isoladamente. Estimativa segue em **~12 semanas até a V1**, sem mudança de número.
+**Auditoria de segurança feita sobre o que está em produção — não uma revisão de papel.** Uma
+varredura manual das policies reais encontrou **dois furos genuínos**: qualquer usuário autenticado
+podia virar integrante de qualquer viagem só adivinhando um ID sequencial (sem nunca ver o código),
+e qualquer colega de viagem podia ler CPF/telefone de outro integrante via chamada direta à API,
+mesmo a UI nunca mostrando esses campos. Os dois foram fechados, e um teste adversarial automatizado
+(um "atacante" de verdade tentando os dois ataques) confirma que ambos falham agora como esperado.
+Também: React trocado para build de produção, favicon adicionado, e a VN ganhou uma seção nova
+(§17) documentando a postura de segurança real e um gatilho concreto para revisar a arquitetura de
+arquivo único quando o app crescer. Estimativa segue em **~12 semanas até a V1**, sem mudança.
 
-**Pendência que mais afeta o prazo real:** ainda não há equipe/cadência definida (ver seção 4).
+**Pendência que mais afeta o prazo real:** ainda não há equipe/cadência definida (ver seção 4), e
+agora também a ausência de observabilidade de erros (E15) — registrada como risco a não crescer a
+base de usuários sem resolver antes.
 
 ---
 
@@ -83,19 +88,54 @@ Ciclo 5 — a troca prometida no ciclo 4, mais dois bugs de RLS corrigidos ao lo
   sozinha (é preciso voltar pela Home e clicar no card). Isso é uma lacuna de navegação pré-existente
   do ciclo 3, não algo que a conexão com o Supabase criou — registrado aqui para não ficar invisível.
 
+Ciclo 6 — auditoria de segurança/privacidade sobre o que já estava em produção, a pedido explícito
+de "olhar para segurança e proteção de dados" e definir arquitetura de crescimento:
+
+- **Bug real #3 — enumeração de viagens:** a policy de insert em `trip_members` só checava
+  `user_id`/`role`, nunca posse do código de 12 dígitos — qualquer autenticado podia virar
+  "convidado" de qualquer `trip_id` adivinhado. Corrigido: a policy de auto-insert foi **removida**;
+  a única forma de virar convidado agora é a função `join_trip_by_code`, que exige o código exato.
+- **Bug real #4 — vazamento de CPF/telefone entre colegas de viagem:** a policy que permitia ver
+  colegas de viagem liberava a **linha inteira** de `profiles` (cpf, telefone, user_code...), não só
+  o nome exibido na tela. Corrigido: essa policy foi removida e substituída por uma função
+  `get_trip_member_profiles` que só devolve `id`/`name`/`email` — CPF e telefone nunca saem do dono,
+  mesmo que a policy de profiles mude no futuro.
+- **Privilégio mínimo em UPDATE:** Admin só pode alterar a coluna `role` de um integrante (não mais
+  `user_id`); cada usuário só altera as colunas do próprio formulário de Perfil (não `email`,
+  `user_code` ou `created_at`).
+- **Integridade de dados:** constraint no banco garantindo `end_date >= start_date` em viagens —
+  antes só validado no formulário, contornável via chamada direta à API.
+- **Teste adversarial dedicado** (não o teste funcional de sempre): um segundo usuário tentou os
+  dois ataques acima direto contra a API, antes e depois de virar colega de viagem legítimo. Ambos
+  falharam como esperado nos dois casos; o fluxo legítimo de entrar por código continua funcionando
+  (reconfirmado pelo teste de regressão completo, zero erros de console).
+- **Performance/polish:** React trocado de build de desenvolvimento para produção (reduz peso e
+  tempo de parse); favicon real adicionado (eliminava um 404 no console a cada carregamento).
+- **Arquitetura de crescimento documentada** em `00-F` §17: postura de proteção de dados real,
+  lacunas conhecidas (sem observabilidade de erros, sem "esqueci minha senha", sem teste automatizado
+  de RLS), e um gatilho concreto para revisar a decisão de arquivo único (~150 KB de JS, mais de uma
+  pessoa editando em paralelo, ou TTI > ~3s em 4G — o que vier primeiro), substituindo o "a definir"
+  que estava registrado desde `01`.
+- **Limpeza:** contas/viagens de teste apagadas de novo do banco real.
+
 ---
 
 ## 3. Próximos passos imediatos
 
-A Fase A (E1–E4) está funcionalmente completa e real. Próximo é a Fase B do backlog — esqueleto
-vertical mínimo (E5, E6-mín, E7-mín): Home sensível ao estado, um evento de cronograma, uma
-despesa — já direto contra o Supabase, sem passar por mock de novo.
+A Fase A (E1–E4) está funcionalmente completa, real e agora também auditada. Próximo é a Fase B do
+backlog — esqueleto vertical mínimo (E5, E6-mín, E7-mín): Home sensível ao estado, um evento de
+cronograma, uma despesa — já direto contra o Supabase.
+
+**Recomendação explícita (`00-F` §17.2, `03` nota da seção de sequenciamento):** considerar
+adiantar **E15 (log de erros/observabilidade)** para antes da Fase B, ou pelo menos antes de
+qualquer esforço de trazer mais usuários — hoje um bug em produção só aparece se alguém reclamar.
 
 **Ainda em aberto, sem bloquear:**
 - Definir o modelo de negócio em si (não só o dono) — sem prazo declarado.
 - Mover a senha do banco Supabase de `.env.local` para um gerenciador de senhas.
 - Navegação da tab bar "Viagem" não sabe qual viagem reabrir após um F5 (ver seção 2) — pequeno, mas
   vale um épico/história próprio quando a Fase B começar.
+- Sem fluxo de "esqueci minha senha" e sem teste automatizado de RLS (ambos em `00-F` §17.2).
 
 ---
 
@@ -143,3 +183,4 @@ ainda:
 | 2026-08-29 | Início da construção: E1/E3/E4 implementados em `web/index.html` com dados mock (`TrippinAPI`/`localStorage`), testados num navegador real sem erros; E2 (Supabase/GitHub Pages) segue pendente de credenciais |
 | 2026-08-29 | E2 concluído: projeto Supabase real (schema+RLS+Storage) e repositório GitHub reais; app publicado em produção via GitHub Pages; frontend ainda roda sobre o mock, conexão real fica para o próximo ciclo |
 | 2026-08-29 | Frontend conectado ao Supabase real; 2 bugs de RLS encontrados e corrigidos via teste com dois usuários reais (criação de viagem bloqueada por RETURNING+SELECT policy; convidado não conseguia localizar viagem por código); dados de teste limpos |
+| 2026-08-29 | Auditoria de segurança sobre produção: 2 furos reais fechados (enumeração de viagens sem código; vazamento de CPF/telefone entre colegas), privilégio mínimo em UPDATE, constraint de datas, React em build de produção, e nova seção de arquitetura/crescimento na VN (`00-F` §17) |

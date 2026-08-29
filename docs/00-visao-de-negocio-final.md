@@ -389,10 +389,82 @@ Este documento consolida os dois primeiros elos da cadeia de documentação de p
 04 QA report → 05 V&V report → 06 Rollout plan → 07 Operação contínua
 ```
 
-> Nota de coerência do repositório: `02-UXUI-spec.md` e `03-backlog.md` já declaram derivar de
-> `briefing.md`, não desta linha `00/01/00-F`, tratando esta última como exercício didático
-> autocontido. Este mapa descreve o fluxo **interno** dessa linha de documentos, não uma
-> dependência real dos documentos 02/03 já existentes no repositório.
+> Nota de coerência do repositório (atualizada em 2026-08-28): `02-UXUI-spec.md` e `03-backlog.md`
+> derivavam originalmente de `briefing.md`, tratando esta linha `00/01/00-F` como exercício didático
+> à parte — essa decisão foi revertida a pedido do stakeholder, e ambos os documentos passaram a
+> derivar deste `00-F`. O mapa acima já reflete a dependência real em vigor.
+
+---
+
+## 17. Arquitetura de segurança e crescimento (atualizado após E2 ir ao ar)
+
+Adicionado em 2026-08-29, quando a infraestrutura descrita na seção 10 deixou de ser hipotética —
+Supabase e GitHub Pages estão em produção. Esta seção documenta a postura **real** adotada para
+proteção de dados e para crescer o número de usuários, não uma intenção.
+
+### 17.1 Modelo de proteção de dados
+
+Todo dado de usuário mora atrás de Row Level Security forçado (nenhuma tabela é acessível sem
+policy explícita), com um princípio central: **a UI nunca é a linha de defesa — o banco é.**
+Qualquer campo que a UI decide não mostrar (CPF, telefone) é adicionalmente bloqueado por regra de
+acesso na própria tabela, não só omitido da tela.
+
+- **Dados sensíveis (CPF, telefone) nunca saem do dono.** A política de linha de `profiles` só
+  libera a leitura da própria linha; o que outros integrantes de uma viagem veem (nome, e-mail)
+  vem de uma função `security definer` (`get_trip_member_profiles`) que devolve só essas duas
+  colunas — mesmo que a policy de `profiles` mude no futuro, essa função não passa a vazar CPF
+  junto. Verificado com um teste adversarial real (um segundo usuário tentando ler o perfil
+  completo de outro, com e sem serem colegas de viagem — ambos os casos vieram vazios).
+- **Entrar numa viagem exige o código, sempre.** Não existe caminho de escrita que torne alguém
+  integrante de uma viagem sem ter passado pela função `join_trip_by_code`, que exige o código de
+  12 dígitos exato. Isso foi corrigido depois de um teste adversarial mostrar que a política
+  original permitia a qualquer usuário autenticado virar "convidado" de qualquer viagem só
+  adivinhando o identificador sequencial — sem nunca ver o código.
+- **Privilégio mínimo em updates.** Cada papel só recebeu permissão de UPDATE nas colunas que o
+  produto realmente precisa alterar (ex.: um Admin só pode mudar `role` de um integrante, nunca
+  `user_id`; um usuário só atualiza os campos do próprio formulário de Perfil) — não a tabela
+  inteira.
+- **Segredos:** só a chave `publishable` (pensada para ser pública) vive no código do cliente. A
+  chave `service_role`/`secret` nunca foi usada em lugar nenhum ainda — só entrará quando Edge
+  Functions existirem (E8, integração de e-mail), e aí como *secret* da função, nunca no repositório
+  ou no bundle do cliente (decisão de tecnologia #4).
+- **CPF continua opcional** (resposta à pergunta 2 da seção 14) e a política de retenção de
+  documentos sensíveis (seção 13) segue como pendência bloqueante para quando o épico de Docs (E8)
+  for implementado — nada mudou aqui, só reafirmando que a lacuna é conhecida, não esquecida.
+
+### 17.2 O que ainda falta para "seguro o suficiente para crescer"
+
+Registrado explicitamente para não virar suposição otimista:
+
+- **Sem observabilidade de erros em produção** — o épico E15 (log de erros/Sentry) não foi
+  implementado. Hoje, um bug em produção só aparece se um usuário reclamar. Isso deveria vir antes
+  de qualquer esforço deliberado de aquisição de usuários, não depois.
+- **Sem fluxo de "esqueci minha senha"** — Supabase Auth suporta nativamente, mas a tela não foi
+  construída. Aceitável para os primeiros usuários de teste, não para uma base maior.
+- **Sem teste automatizado de RLS** — os dois bugs desta rodada só apareceram porque testamos com
+  dois usuários reais num navegador. Não há suíte que rode isso a cada mudança de schema; hoje isso
+  depende de repetir esse tipo de teste manualmente antes de mudanças em políticas de acesso.
+
+### 17.3 Arquitetura para crescer o número de usuários
+
+O crescimento aqui é majoritariamente uma questão de **não se importar com ele cedo demais** — as
+únicas alavancas que valem preparar agora são as que custam muito para trocar depois:
+
+- **Banco:** todas as chaves estrangeiras têm índice (decisão padrão desde a migração inicial);
+  checagens de posse usam funções `security definer` (`is_trip_member`/`is_trip_admin`) em vez de
+  subconsultas repetidas por linha — é a otimização de RLS recomendada para não pagar `auth.uid()`
+  por linha em tabelas grandes. Pooling de conexão é gerenciado pelo próprio Supabase (Supavisor);
+  nada a configurar manualmente até haver sinal real de esgotamento.
+- **Frontend:** React agora carrega em build de produção (antes estava em build de desenvolvimento
+  por engano — trocado nesta rodada), reduzindo o peso e o tempo de parse. A decisão de arquivo
+  único sem bundler (decisão #1) continua valendo, mas com um **gatilho concreto de revisão**, que
+  antes só dizia "reavaliar quando o arquivo crescer": revisitar a decisão de bundler quando **(a)**
+  o arquivo único ultrapassar ~150 KB de JavaScript não-minificado, **(b)** mais de uma pessoa
+  precisar editar o mesmo arquivo em paralelo com frequência, ou **(c)** o Time to Interactive em
+  uma rede 4G comum ultrapassar ~3s — o que vier primeiro.
+- **Auth:** os limites de taxa padrão do Supabase (`config.toml`, ex.: 2 e-mails/hora) seguem
+  ativos; nenhum ajuste foi necessário para o volume atual. Revisitar quando houver campanha de
+  aquisição real (ligado à premissa de aquisição orgânica da seção 6).
 
 ---
 

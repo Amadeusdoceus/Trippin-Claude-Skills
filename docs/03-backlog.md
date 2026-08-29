@@ -22,6 +22,11 @@
 | **D — Completar módulos** | E6-completo, E7-completo, E9, E10, E11 | Semana/mês, reordenar, conflitos, métodos de divisão avançados, Mapa, Galeria, Sugestões |
 | **E — Infraestrutura transversal** | E12, E13, E14, E15 | Offline, notificações/drawer, retenção/privacidade e log de erros só fazem sentido depois de existirem fluxos reais para sincronizar, notificar e logar |
 
+> **Nota adicionada em 2026-08-29 (`00-F` §17.2):** com E2 em produção, **E15 (log de erros e
+> observabilidade)** deveria ser adiantado para antes de qualquer esforço deliberado de aquisição
+> de usuários — hoje um bug em produção só é percebido se alguém reclamar. Não é um bloqueio para
+> continuar a Fase B, mas é um risco real se o número de usuários crescer antes de E15 existir.
+
 ---
 
 ## E1 — Fundação de design system
