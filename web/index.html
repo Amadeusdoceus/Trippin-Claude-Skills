@@ -379,6 +379,19 @@ const I18N = {
     retentionPolicyNote: 'Documentos anexados ficam guardados enquanto a viagem existir. Você pode excluir um documento e os dados extraídos dele a qualquer momento — o evento já criado a partir dele não é apagado junto.',
     deleteDocumentAction: 'Excluir documento',
     noDocumentsAnywhereYet: 'Nenhum documento anexado em nenhuma das suas viagens ainda.',
+    syncLogTitle: 'Registro de sincronização',
+    noSyncEventsYet: 'Nenhuma sincronização registrada ainda neste dispositivo.',
+    syncStatusPending: 'Aguardando conexão',
+    syncStatusSynced: 'Corrigido automaticamente',
+    syncStatusConflict: 'Descartada — havia uma edição mais recente no servidor',
+    syncStatusError: 'Falhou',
+    retrySync: 'Tentar novamente',
+    syncDescCreateEvent: (title) => `Criar evento${title ? ': ' + title : ''}`,
+    syncDescUpdateEvent: (title) => `Editar evento${title ? ': ' + title : ''}`,
+    syncDescDeleteEvent: (title) => `Excluir evento${title ? ': ' + title : ''}`,
+    syncDescCreateExpense: (desc) => `Criar despesa${desc ? ': ' + desc : ''}`,
+    syncDescSettleExpense: 'Quitar despesa',
+    syncDescReopenExpense: 'Reabrir despesa quitada',
   },
   'en-US': {
     appName: 'Trippin',
@@ -519,6 +532,19 @@ const I18N = {
     retentionPolicyNote: "Attached documents are kept for as long as the trip exists. You can delete a document and its extracted data at any time — any event already created from it is not removed.",
     deleteDocumentAction: 'Delete document',
     noDocumentsAnywhereYet: 'No documents attached in any of your trips yet.',
+    syncLogTitle: 'Sync log',
+    noSyncEventsYet: 'No syncs logged on this device yet.',
+    syncStatusPending: 'Waiting for connection',
+    syncStatusSynced: 'Fixed automatically',
+    syncStatusConflict: 'Discarded — the server had a newer edit',
+    syncStatusError: 'Failed',
+    retrySync: 'Try again',
+    syncDescCreateEvent: (title) => `Create event${title ? ': ' + title : ''}`,
+    syncDescUpdateEvent: (title) => `Edit event${title ? ': ' + title : ''}`,
+    syncDescDeleteEvent: (title) => `Delete event${title ? ': ' + title : ''}`,
+    syncDescCreateExpense: (desc) => `Create expense${desc ? ': ' + desc : ''}`,
+    syncDescSettleExpense: 'Settle expense',
+    syncDescReopenExpense: 'Reopen settled expense',
   },
 };
 // Demais 8 idiomas do roadmap ficam como stub — caem em EN-US como fallback (decisão #11).
@@ -748,12 +774,49 @@ function queueSet(tripId, list) {
   try { window.dispatchEvent(new CustomEvent('trippin:queue-changed', { detail: { tripId } })); } catch (e) {}
 }
 function queuePush(tripId, item) {
+  if (!item.id) item.id = genId();
   const list = queueGet(tripId);
   list.push(item);
   queueSet(tripId, list);
+  return item.id;
 }
 function queuePendingCount(tripId) {
   return queueGet(tripId).length;
+}
+
+function genId() {
+  return crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random().toString(36).slice(2);
+}
+
+// H15.1 — "Registro de sincronização": histórico visível ao usuário do que
+// aconteceu com cada alteração feita offline (não só o que ainda está
+// pendente, ao contrário da fila). Guarda tipo + dados (não uma string já
+// pronta) para renderizar no idioma atual mesmo que o usuário troque de
+// idioma depois de o registro ter sido criado — mesmo motivo das
+// notificações do E13. Cortado em 50 entradas por viagem (dispositivo local,
+// não é um histórico de auditoria do servidor).
+const SYNC_LOG_PREFIX = 'trippin_synclog::';
+function syncLogGet(tripId) {
+  try { return JSON.parse(localStorage.getItem(SYNC_LOG_PREFIX + tripId) || '[]'); } catch (e) { return []; }
+}
+function syncLogSet(tripId, list) {
+  try { localStorage.setItem(SYNC_LOG_PREFIX + tripId, JSON.stringify(list.slice(-50))); } catch (e) {}
+  try { window.dispatchEvent(new CustomEvent('trippin:synclog-changed', { detail: { tripId } })); } catch (e) {}
+}
+function syncLogAdd(tripId, entry) {
+  const list = syncLogGet(tripId);
+  list.push(entry);
+  syncLogSet(tripId, list);
+}
+function syncLogUpdate(tripId, entryId, patch) {
+  const list = syncLogGet(tripId);
+  const idx = list.findIndex(e => e.id === entryId);
+  if (idx === -1) return;
+  list[idx] = { ...list[idx], ...patch };
+  syncLogSet(tripId, list);
+}
+function syncLogRemove(tripId, entryId) {
+  syncLogSet(tripId, syncLogGet(tripId).filter(e => e.id !== entryId));
 }
 
 // Erro de conectividade (offline, DNS, timeout) — diferente de um erro de
@@ -819,54 +882,73 @@ function addCachedEvent(tripId, dayIso, event) {
 // last-write-wins comparando o timestamp local de quando a ação foi feita
 // offline contra schedule_events.updated_at no servidor: se o servidor tem
 // uma edição mais recente, a ação offline é descartada (registrada no
-// histórico de auditoria dos dois lados, nunca escondida).
+// histórico de auditoria dos dois lados, nunca escondida). Retorna o
+// resultado ('applied' | 'discarded_conflict' | 'noop') para o chamador
+// (flushPendingQueue/retrySyncItem) atualizar o registro de sincronização
+// (H15.1) com o desfecho certo — sucesso e conflito descartado não são a
+// mesma coisa, mesmo que nenhum dos dois lance erro.
 async function applyQueuedItem(item, tripId, userId) {
   if (item.entity === 'event') {
     if (item.op === 'create') {
       await RawTrippinAPI.createEvent(item.payload);
-      return;
+      return 'applied';
     }
     const { data: current } = await supabaseClient.from('schedule_events').select('updated_at').eq('id', item.entityId).maybeSingle();
-    if (!current) return; // já foi excluído no servidor — nada a reconciliar
+    if (!current) return 'noop'; // já foi excluído no servidor — nada a reconciliar
     const serverIsNewer = new Date(current.updated_at).getTime() > item.clientTimestamp;
     if (item.op === 'update') {
       if (serverIsNewer) {
         await RawTrippinAPI.addAuditEntry(tripId, userId, 'uma edição de evento feita offline foi descartada (o servidor tinha uma versão mais recente)');
-        return;
+        return 'discarded_conflict';
       }
       await RawTrippinAPI.updateEvent(item.entityId, item.payload.patch, item.payload.participantIds);
       await RawTrippinAPI.addAuditEntry(tripId, userId, 'sincronizou uma edição de evento feita offline');
+      return 'applied';
     } else if (item.op === 'delete') {
       if (serverIsNewer) {
         await RawTrippinAPI.addAuditEntry(tripId, userId, 'uma exclusão de evento feita offline foi descartada (o servidor tinha uma versão mais recente)');
-        return;
+        return 'discarded_conflict';
       }
       await RawTrippinAPI.deleteEvent(item.entityId);
+      return 'applied';
     }
   } else if (item.entity === 'expense' && item.op === 'create') {
     await RawTrippinAPI.createExpense(item.payload);
+    return 'applied';
   } else if (item.entity === 'expense_share') {
     await RawTrippinAPI.setShareSettled(tripId, item.entityId, item.payload.targetUserId, item.payload.settled, userId);
+    return 'applied';
   }
+  return 'applied';
 }
 
-// Processa a fila de uma viagem; itens que ainda falham por conectividade
-// voltam para a fila (tenta de novo na próxima reconexão), erros de negócio
-// genuínos são descartados e logados (H15.2), não travam o resto da fila.
+// Processa a fila de uma viagem ao reconectar. Só reprocessa automaticamente
+// itens que ainda não falharam por um motivo genuíno (status 'error') — um
+// item que já falhou uma vez por erro de negócio não é martelado a cada
+// reconexão, fica esperando o usuário mandar tentar de novo pela tela de
+// Registro de sincronização (H15.1, retrySyncItem). Itens que só estavam
+// esperando conexão continuam sendo sincronizados sozinhos, sem ação nenhuma
+// do usuário — exatamente a distinção que H15.1 pede ("corrigido
+// automaticamente" vs. precisa de "Tentar novamente").
 async function flushPendingQueue(tripId, userId) {
   const queue = queueGet(tripId);
-  if (!queue.length) return false;
-  const remaining = [];
+  const toProcess = queue.filter(q => q.status !== 'error');
+  if (!toProcess.length) return false;
+  const remaining = queue.filter(q => q.status === 'error');
   let appliedAny = false;
-  for (const item of queue) {
+  for (const item of toProcess) {
     try {
-      await applyQueuedItem(item, tripId, userId);
+      const outcome = await applyQueuedItem(item, tripId, userId);
       appliedAny = true;
+      syncLogUpdate(tripId, item.id, { status: outcome === 'discarded_conflict' ? 'conflict' : 'synced', resolvedAt: Date.now() });
     } catch (error) {
       if (isConnectivityError(error)) {
         remaining.push(item);
       } else {
         logClientError(error, { source: 'flushPendingQueue', item });
+        item.status = 'error';
+        remaining.push(item);
+        syncLogUpdate(tripId, item.id, { status: 'error', resolvedAt: Date.now(), errorMessage: String((error && error.message) || error) });
       }
     }
   }
@@ -877,6 +959,30 @@ async function flushPendingQueue(tripId, userId) {
     localStorage.removeItem(CACHE_PREFIX + `expenses_${tripId}`);
   }
   return appliedAny;
+}
+
+// H15.1 — ação explícita "Tentar novamente" na tela de Registro de
+// sincronização, para um item específico que já falhou por um motivo
+// genuíno (não só falta de conexão).
+async function retrySyncItem(tripId, userId, itemId) {
+  const queue = queueGet(tripId);
+  const idx = queue.findIndex(q => q.id === itemId);
+  if (idx === -1) return;
+  const item = queue[idx];
+  try {
+    const outcome = await applyQueuedItem(item, tripId, userId);
+    queue.splice(idx, 1);
+    queueSet(tripId, queue);
+    syncLogUpdate(tripId, item.id, { status: outcome === 'discarded_conflict' ? 'conflict' : 'synced', resolvedAt: Date.now() });
+    cacheKeysWithPrefix(`events_day_${tripId}_`).forEach(k => localStorage.removeItem(CACHE_PREFIX + k));
+    cacheKeysWithPrefix(`events_range_${tripId}_`).forEach(k => localStorage.removeItem(CACHE_PREFIX + k));
+    localStorage.removeItem(CACHE_PREFIX + `expenses_${tripId}`);
+  } catch (error) {
+    if (!isConnectivityError(error)) logClientError(error, { source: 'retrySyncItem', item });
+    item.status = 'error';
+    queueSet(tripId, queue);
+    syncLogUpdate(tripId, item.id, { status: 'error', resolvedAt: Date.now(), errorMessage: String((error && error.message) || error) });
+  }
 }
 
 /* =========================================================================
@@ -1161,10 +1267,11 @@ const RawTrippinAPI = {
         participantIds: participantIds || [], pendingSync: true,
       };
       addCachedEvent(tripId, dayIso, optimistic);
-      queuePush(tripId, {
+      const queueId = queuePush(tripId, {
         entity: 'event', op: 'create', entityId: optimistic.id, clientTimestamp: Date.now(),
         payload: { tripId, title, location, startsAt, endsAt, notes, userId, participantIds },
       });
+      syncLogAdd(tripId, { id: queueId, kind: 'create_event', label: title, clientTimestamp: Date.now(), status: 'pending' });
       return optimistic;
     }
   },
@@ -1192,6 +1299,7 @@ const RawTrippinAPI = {
         if (createItem) {
           Object.assign(createItem.payload, patch, participantIds ? { participantIds } : {});
           queueSet(tripId, queue);
+          if ('title' in patch) syncLogUpdate(tripId, createItem.id, { label: patch.title });
         }
       }
       return;
@@ -1217,10 +1325,11 @@ const RawTrippinAPI = {
       if (!isConnectivityError(error)) throw error;
       const tripId = applyLocalPatch();
       if (tripId) {
-        queuePush(tripId, {
+        const queueId = queuePush(tripId, {
           entity: 'event', op: 'update', entityId: eventId, clientTimestamp: Date.now(),
           payload: { patch, participantIds },
         });
+        syncLogAdd(tripId, { id: queueId, kind: 'update_event', label: patch.title || '', clientTimestamp: Date.now(), status: 'pending' });
       }
     }
   },
@@ -1229,8 +1338,10 @@ const RawTrippinAPI = {
     if (String(eventId).startsWith('local_')) {
       const tripId = mutateCachedEvents(eventId, () => null);
       if (tripId) {
-        const queue = queueGet(tripId).filter(q => !(q.entity === 'event' && q.op === 'create' && q.entityId === eventId));
-        queueSet(tripId, queue);
+        const queue = queueGet(tripId);
+        const createItem = queue.find(q => q.entity === 'event' && q.op === 'create' && q.entityId === eventId);
+        queueSet(tripId, queue.filter(q => !(q.entity === 'event' && q.op === 'create' && q.entityId === eventId)));
+        if (createItem) syncLogRemove(tripId, createItem.id);
       }
       return;
     }
@@ -1239,9 +1350,11 @@ const RawTrippinAPI = {
       if (error) throw error;
     } catch (error) {
       if (!isConnectivityError(error)) throw error;
-      const tripId = mutateCachedEvents(eventId, () => null);
+      let removedTitle = '';
+      const tripId = mutateCachedEvents(eventId, (ev) => { removedTitle = ev.title; return null; });
       if (tripId) {
-        queuePush(tripId, { entity: 'event', op: 'delete', entityId: eventId, clientTimestamp: Date.now() });
+        const queueId = queuePush(tripId, { entity: 'event', op: 'delete', entityId: eventId, clientTimestamp: Date.now() });
+        syncLogAdd(tripId, { id: queueId, kind: 'delete_event', label: removedTitle, clientTimestamp: Date.now(), status: 'pending' });
       }
     }
   },
@@ -1317,10 +1430,11 @@ const RawTrippinAPI = {
       };
       const key = `expenses_${tripId}`;
       cacheSet(key, [optimistic].concat(cacheGet(key) || []));
-      queuePush(tripId, {
+      const queueId = queuePush(tripId, {
         entity: 'expense', op: 'create', entityId: optimistic.id, clientTimestamp: Date.now(),
         payload: { tripId, eventId, description, amount, currency, paidBy, participantUserIds, splitMethod, sharesMap },
       });
+      syncLogAdd(tripId, { id: queueId, kind: 'create_expense', label: description, clientTimestamp: Date.now(), status: 'pending' });
       return optimistic;
     }
   },
@@ -1352,10 +1466,11 @@ const RawTrippinAPI = {
         ...exp, pendingSync: true,
         shares: (exp.shares || []).map(s => s.userId === targetUserId ? { ...s, settled } : s),
       }));
-      queuePush(tripId, {
+      const queueId = queuePush(tripId, {
         entity: 'expense_share', op: 'update', entityId: expenseId, clientTimestamp: Date.now(),
         payload: { targetUserId, settled },
       });
+      syncLogAdd(tripId, { id: queueId, kind: settled ? 'settle_expense' : 'reopen_expense', label: '', clientTimestamp: Date.now(), status: 'pending' });
     }
   },
 
@@ -2869,6 +2984,19 @@ function MembersScreen({ lang, tripId, tripCode, members, auditLog, myRole, curr
   const [inviteOpen, setInviteOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const [promoting, setPromoting] = useState(false);
+  // H15.1 — registro de sincronização é local ao dispositivo (a fila offline
+  // também é), não vem do servidor; por isso lê direto do localStorage e se
+  // atualiza pelo mesmo evento customizado que a fila usa.
+  const [syncLog, setSyncLog] = useState(() => syncLogGet(tripId));
+  useEffect(() => {
+    function onSyncLogChanged(e) { if (e.detail && e.detail.tripId === tripId) setSyncLog(syncLogGet(tripId)); }
+    window.addEventListener('trippin:synclog-changed', onSyncLogChanged);
+    return () => window.removeEventListener('trippin:synclog-changed', onSyncLogChanged);
+  }, [tripId]);
+
+  async function retrySync(entryId) {
+    await retrySyncItem(tripId, currentUserId, entryId);
+  }
 
   async function promote(target, newRole) {
     setPromoting(true);
@@ -2932,6 +3060,27 @@ function MembersScreen({ lang, tripId, tripCode, members, auditLog, myRole, curr
             </div>
           ))
       }
+
+      {/* H15.1 — só faz sentido mostrar quando existe alguma coisa a mostrar:
+          este dispositivo nunca fez uma alteração offline nesta viagem. */}
+      {syncLog.length > 0 && (
+        <React.Fragment>
+          <h3 style={{ marginTop: 20 }}>{t(lang, 'syncLogTitle')}</h3>
+          {syncLog.slice().reverse().map(entry => (
+            <div key={entry.id} className="audit-item">
+              <div className="row-between">
+                <span>{syncLogDescription(lang, entry)} — {new Date(entry.clientTimestamp).toLocaleString(lang)}</span>
+                {entry.status === 'error' && (
+                  <button className="btn btn-secondary" style={{ width: 'auto' }} onClick={() => retrySync(entry.id)}>
+                    {t(lang, 'retrySync')}
+                  </button>
+                )}
+              </div>
+              <span className="hint">{t(lang, 'syncStatus' + entry.status.charAt(0).toUpperCase() + entry.status.slice(1))}</span>
+            </div>
+          ))}
+        </React.Fragment>
+      )}
 
       <BottomSheet open={!!sheetTarget} onClose={() => setSheetTarget(null)}>
         {sheetTarget && (
@@ -3109,6 +3258,21 @@ function notificationMessage(lang, n) {
   if (n.type === 'expense_impact') return t(lang, 'notifExpenseImpact', p.description, Number(p.amount).toFixed(2), p.currency, n.tripName);
   if (n.type === 'schedule_conflict') return t(lang, 'notifScheduleConflict', p.eventTitle, p.conflictTitle, n.tripName);
   return '';
+}
+
+// H15.1 — mesma ideia do notificationMessage acima: o registro guarda tipo +
+// dado (kind/label), não uma string pronta, para renderizar certo mesmo se o
+// usuário trocar de idioma depois de a entrada ter sido criada.
+function syncLogDescription(lang, entry) {
+  switch (entry.kind) {
+    case 'create_event': return t(lang, 'syncDescCreateEvent', entry.label);
+    case 'update_event': return t(lang, 'syncDescUpdateEvent', entry.label);
+    case 'delete_event': return t(lang, 'syncDescDeleteEvent', entry.label);
+    case 'create_expense': return t(lang, 'syncDescCreateExpense', entry.label);
+    case 'settle_expense': return t(lang, 'syncDescSettleExpense');
+    case 'reopen_expense': return t(lang, 'syncDescReopenExpense');
+    default: return '';
+  }
 }
 
 function NotificationsScreen({ lang, user, onChanged }) {

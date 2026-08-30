@@ -4,31 +4,34 @@
 |---|---|
 | **Tipo** | Relatório de status gerencial — atualizado a cada ciclo, não é parte da cadeia numerada `00→07` |
 | **Base** | `00-visao-de-negocio-final.md`, `02-UXUI-spec.md`, `03-backlog.md` |
-| **Atualização atual** | 2026-08-30 (ciclo 13 — Fase E: E14, privacidade e retenção) |
-| **Atualização anterior** | 2026-08-30 (ciclo 12 — Fase E: E13, notificações e drawer) |
+| **Atualização atual** | 2026-08-30 (ciclo 14 — Fase E: H15.1, registro de sincronização) |
+| **Atualização anterior** | 2026-08-30 (ciclo 13 — Fase E: E14, privacidade e retenção) |
 | **Como manter** | A cada novo ciclo: atualizar seções 1–4 com o estado atual e adicionar uma linha em "Histórico" (seção 6). Não reescrever o histórico de ciclos passados. |
 
 ---
 
 ## 1. Resumo executivo
 
-**E14 — Privacidade e retenção entregue neste ciclo, fechando a Fase E quase por completo.** Nova
-tela "Privacidade e dados" (drawer) lista todo documento anexado em qualquer viagem do usuário, com
-data de upload, e permite excluir o arquivo e o vínculo (o evento já criado a partir dele continua
-existindo). Também resolve uma pendência que vinha desde a Visão de Negócio original: o prazo de
-retenção de documentos sensíveis (passaporte, cartão de embarque, comprovantes financeiros) agora tem
-um valor definido e comunicado ao usuário na própria tela. Com isso, a Fase E fica em **4 de 6
-frentes feitas** (E12 offline, E13 notificações, E14 privacidade, H15.2 log de erros); restam só
-H15.1 (tela de sincronização, liberada pelo E12 mas ainda não construída) e H15.3 (Playwright/CI,
-frente de tooling separada). **Isso fecha todo o backlog core do MVP**, restando apenas essas duas
-frentes menores de E15. Estimativa segue em **~12 semanas até a V1**.
+**H15.1 — Registro de sincronização entregue neste ciclo, deixando a Fase E a uma única história de
+estar 100% completa.** Nova seção na aba Integrantes mostra, para quem usa o app pelo mesmo
+dispositivo, cada alteração feita offline (criar evento, quitar despesa, etc.) com horário e
+descrição; sucesso automático ao reconectar aparece como "Corrigido automaticamente", e uma falha
+genuína (não só falta de conexão) ganha um botão "Tentar novamente" — exatamente a redação do
+critério original. Isso exigiu um ajuste pequeno no comportamento do E12: antes, uma falha genuína
+era descartada silenciosamente da fila; agora ela fica retida até o usuário pedir para tentar de
+novo, verificado sem regredir o fluxo automático que já funcionava. Com isso, **a Fase E fica em 5
+de 6 frentes feitas** (E12, E13, E14, H15.1, H15.2); só falta H15.3 (Playwright/CI, frente de
+tooling separada da lógica de produto) para o backlog inteiro estar concluído. Estimativa segue em
+**~12 semanas até a V1**.
 
 **Pendência que mais afeta o prazo real:** ainda não há equipe/cadência definida (ver seção 4).
 Quatro verificações continuam recomendadas, não bloqueantes, todas por limitação de memória do
 ambiente de teste local (não por dúvida sobre o código, que foi verificado por outros caminhos em
 cada caso): upload de fotos na Galeria (ciclo 9), conflito de edição concorrente do E12 (ciclo 11),
 renderização em navegador da tela de Notificações do E13 (ciclo 12) e da tela de Privacidade e dados
-do E14 (este ciclo).
+do E14 (ciclo 13). O Registro de sincronização deste ciclo, ao contrário dos anteriores, **foi
+confirmado com sucesso em navegador real** (ver seção 2) — a sequência de tentativas com esgotamento
+de memória não se repetiu desta vez.
 
 ---
 
@@ -328,24 +331,44 @@ Ciclo 13 — E14 (privacidade e retenção) concluída:
   11 e 12 — o componente segue o mesmo padrão de lista já testado em outras telas.
 - **Limpeza:** contas/viagem de teste apagadas do banco real.
 
+Ciclo 14 — H15.1 (registro de sincronização) concluída, seguindo a sequência do próprio backlog:
+
+- **Nova seção na aba Integrantes** (o "config. da viagem" da spec original — não uma tela separada):
+  cada alteração feita offline (criar/editar/excluir evento, criar despesa, quitar/reabrir) aparece
+  com horário e uma descrição própria ("Criar evento: X", "Quitar despesa"), lida do dispositivo, não
+  do servidor — mesma natureza local da fila offline do E12.
+- **Sucesso automático vira "Corrigido automaticamente"** quando a sincronização ao reconectar dá
+  certo sozinha, sem ação do usuário — texto exato do critério original.
+- **Falha genuína ganha "Tentar novamente":** isso exigiu mudar um comportamento do E12 — antes, uma
+  falha que não fosse por falta de conexão era descartada da fila silenciosamente (só ia para o log
+  de engenharia do H15.2); agora ela fica retida, marcada, esperando o usuário pedir para tentar de
+  novo. Uma pendência só por falta de conexão continua sincronizando sozinha a cada reconexão, sem
+  precisar de clique — a distinção que o critério original pedia.
+- **Verificado com sucesso em navegador real desta vez** (as tentativas anteriores dos ciclos 11-13
+  esbarraram em falta de memória do ambiente de teste): criar evento offline → reconectar →
+  sincroniza sozinho → aba Integrantes mostra a entrada certa com "Corrigido automaticamente"; o
+  mesmo teste confirmou que a mudança no comportamento de fila do E12 não regrediu o fluxo automático
+  que já funcionava (fila volta a zero itens depois de reconectar, como antes da mudança).
+- **Limpeza:** conta/viagem de teste apagada do banco real.
+
 ---
 
 ## 3. Próximos passos imediatos
 
-**Todo o MVP core (Fases A–D) está entregue; a Fase E está com 4 de 6 frentes feitas** (E12 offline,
-E13 notificações, E14 privacidade, H15.2 log de erros). Restam só H15.1 (tela de sincronização,
-liberada pelo E12 mas ainda não construída) e H15.3 (Playwright/CI, frente de tooling separada) —
-**isso fecha todo o backlog core do MVP**. Recomendação: como as duas frentes restantes são de
-observabilidade/tooling e não de produto, este é um bom momento para fazer as verificações manuais
-acumuladas (ver abaixo) antes de seguir para H15.1/H15.3, ou para revisitar prioridades agora que o
-MVP inteiro está funcionalmente completo.
+**Todo o MVP core (Fases A–D) está entregue; a Fase E está com 5 de 6 frentes feitas** (E12, E13,
+E14, H15.1, H15.2). Falta só **H15.3** (Playwright/CI antes do push) para o backlog inteiro estar
+concluído — e é uma frente de tooling/CI, não de produto. Recomendação: com o MVP funcionalmente
+completo, priorizar limpar a dívida de verificação manual acumulada (ver abaixo) antes ou em paralelo
+com H15.3, já que ela é justamente sobre automatizar esse tipo de checagem no futuro.
 
 **Verificações pendentes, não bloqueantes (todas por limitação de memória do ambiente de teste
 local, não por dúvida sobre o código):**
 - Testar manualmente o upload de foto na Galeria num navegador real (herdado do ciclo 9).
 - Testar o cenário de conflito de edição concorrente do E12 (H12.3) (herdado do ciclo 11).
 - Confirmar em navegador real a renderização da tela de Notificações do E13 (herdado do ciclo 12).
-- Confirmar em navegador real a renderização da tela de Privacidade e dados do E14 (este ciclo).
+- Confirmar em navegador real a renderização da tela de Privacidade e dados do E14 (herdado do
+  ciclo 13). O Registro de sincronização do H15.1 (este ciclo) **já foi confirmado**, então não entra
+  nesta lista — é a prova de que a limitação é do ambiente, não algo sistemático em toda tela nova.
 
 **Ainda em aberto, sem bloquear:**
 - Definir o modelo de negócio em si (não só o dono) — sem prazo declarado.
@@ -353,7 +376,7 @@ local, não por dúvida sobre o código):**
 - Navegação da tab bar "Viagem" não sabe qual viagem reabrir após um F5 (ver ciclo 6) — pequeno, mas
   vale uma história própria.
 - Sem fluxo de "esqueci minha senha" e sem teste automatizado de RLS (ambos em `00-F` §17.2).
-- H15.3 (Playwright/CI antes do push) — pedir explicitamente quando quiser priorizar essa frente.
+- H15.3 (Playwright/CI antes do push) — a única história que falta no backlog inteiro.
 - OCR não processa PDF nesta versão de E8 (só imagens) — registrado como redução de escopo, não bug.
 - Reordenar evento (H6.4) não funciona offline — ignorado silenciosamente, registrado no backlog.
 - Notificações não chegam em segundo plano (sem push real) — registrado como redução de escopo do
@@ -375,7 +398,7 @@ local, não por dúvida sobre o código):**
 | 4–5 | B — Esqueleto vertical mínimo | E5, E6-mín, E7-mín | Fluxo ponta a ponta: criar viagem → ver painel → 1 evento → 1 despesa |
 | 6–7 | C — Diferencial central | E8 (Docs com inteligência) | Anexar um documento popula o cronograma, com confirmação humana — a promessa central da VN — **✅ feito** |
 | 8–10 | D — Completar módulos | E6-completo, E7-completo, E9, E10, E11 | Cronograma e Despesas completos; Mapa, Galeria e Sugestões no ar |
-| 11–12 | E — Infraestrutura transversal | E12, E13, E14, E15 | Offline, notificações, privacidade/retenção e observabilidade — critério de "visão atingida" da VN completo — **E12, E13 e E14 ✅ feitos** |
+| 11–12 | E — Infraestrutura transversal | E12, E13, E14, E15 | Offline, notificações, privacidade/retenção e observabilidade — critério de "visão atingida" da VN completo — **E12, E13, E14 e H15.1 ✅ feitos; só H15.3 falta** |
 
 **Data-alvo estimada da V1:** ~2026-11-20 (12 semanas a partir de hoje, 2026-08-28) — **estimativa
 de planejamento**, não uma data comprometida, pelas razões da premissa acima.
@@ -413,3 +436,4 @@ ainda:
 | 2026-08-30 | E12 (sincronização offline) concluída: cache local de leitura, fila de pendências para cronograma/despesas com indicador visual, sincronização automática ao reconectar com last-write-wins (novo `schedule_events.updated_at`); verificado ponta-a-ponta em teste real (criar offline → reconectar → sincroniza sozinho, confirmado no banco); cenário de conflito entre dois usuários implementado mas não verificado neste ciclo por limitação de memória do ambiente de teste local |
 | 2026-08-30 | E13 (notificações e drawer) concluída: drawer já existia desde a Fase A, tela de Notificações ganhou conteúdo real via 3 triggers no banco (integrante entrou, despesa impactando, conflito de agenda) com RLS e badge de não lidas; fecha também a pendência de notificação do H7.3; lógica de banco verificada com 13 checagens via script real (RLS e triggers corretos), renderização em navegador não confirmada por limitação de memória do ambiente de teste |
 | 2026-08-30 | E14 (privacidade e retenção) concluída: tela global "Privacidade e dados" lista documentos de todas as viagens do usuário com data de upload, exclusão restrita a dono/Admin (RLS), evento confirmado sobrevive à exclusão do documento; prazo de retenção definido (enquanto a viagem existir, sem expiração automática) e comunicado na tela, resolvendo uma pendência de compliance aberta desde a VN original; 13 checagens via script real confirmaram RLS e comportamento de exclusão, renderização em navegador não confirmada pela mesma limitação de ambiente; Fase E fecha em 4 de 6 frentes, restando só H15.1/H15.3 |
+| 2026-08-30 | H15.1 (registro de sincronização) concluída: nova seção na aba Integrantes mostra cada alteração offline com horário/descrição, sucesso automático vira "Corrigido automaticamente", falha genuína ganha botão "Tentar novamente" (mudança de comportamento no E12: falhas genuínas deixaram de ser descartadas silenciosamente da fila); verificado com sucesso em navegador real (primeira vez desde o ciclo 10 que uma tela nova é confirmada assim, não só por script) sem regredir o fluxo automático já existente; Fase E fica em 5 de 6 frentes feitas, só falta H15.3 para o backlog inteiro estar concluído |
