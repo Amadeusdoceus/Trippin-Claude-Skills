@@ -194,19 +194,24 @@
   }
   .drawer button:hover { background: var(--color-border); }
 
-  /* Bottom sheet — usado em Convite/Compartilhar e Promover integrante */
+  /* Bottom sheet — usado em Convite/Compartilhar e Promover integrante.
+     Backlog v2 — correção de regressão real (reportada pelo stakeholder):
+     o backdrop ia até `inset: 0` (base absoluta da tela), ignorando os 72px
+     reservados pela barra de navegação inferior (`.app-shell` padding-bottom)
+     — o popup sempre desenhava por cima dela; e em telas de celular reais,
+     onde a altura visível muda com a barra de endereço do navegador, isso
+     também deixava o rodapé do popup fora da área visível. `bottom: 72px`
+     (em vez de `inset: 0`) resolve os dois problemas de uma vez: o popup
+     nunca mais invade a barra de navegação, e por não depender de uma altura
+     fixa em `vh`, o limite se ajusta sozinho à altura real visível. */
   .sheet-backdrop {
-    position: fixed; inset: 0; background: rgba(0,0,0,0.35); z-index: 30;
+    position: fixed; top: 0; left: 0; right: 0; bottom: 72px; background: rgba(0,0,0,0.35); z-index: 30;
     display: flex; align-items: flex-end; justify-content: center;
   }
-  /* Backlog v2 — correção de regressão: conteúdo mais longo (modo Passagem
-     de H16.2, ajudante de check-in de H19.2, recibo de H19.1, busca de
-     hospedagem de E21) passou a estourar a altura da tela em vários sheets
-     ao mesmo tempo; .sheet nunca teve limite de altura nem rolagem própria. */
   .sheet {
     background: var(--color-surface-raised); width: 100%; max-width: 480px;
     border-radius: 20px 20px 0 0; padding: 20px 20px 28px; z-index: 31;
-    max-height: 88vh; overflow-y: auto; -webkit-overflow-scrolling: touch;
+    max-height: 92%; overflow-y: auto; -webkit-overflow-scrolling: touch;
   }
   .sheet-handle {
     width: 36px; height: 4px; background: var(--color-border); border-radius: 999px;

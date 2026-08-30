@@ -64,6 +64,20 @@ Extração de documento mais rica (também extrai local, não só data/horário)
 > testado de ponta a ponta neste ciclo — mesma limitação de ambiente já registrada em H10.1
 > (Cloudflare Bot Management bloqueando upload ao Storage vindo de Chrome headless, não um
 > problema do código).
+>
+> **Segunda causa do mesmo bug, encontrada depois de o stakeholder descrever com mais
+> detalhe:** o primeiro reparo (`max-height`/rolagem) não era a causa inteira. `.sheet-backdrop`
+> usava `inset: 0` — ia até a base absoluta da tela, ignorando os 72px reservados pela barra
+> de navegação inferior (`.app-shell` padding-bottom). Resultado: o popup sempre desenhava por
+> cima da barra de navegação (z-index mais alto), e em telas de celular reais — onde a altura
+> visível muda com a barra de endereço do navegador — o rodapé do popup também ficava fora da
+> área visível. Corrigido trocando `inset: 0` por `bottom: 72px` no backdrop (resolve os dois
+> de uma vez: nunca mais invade a barra de navegação, e por não depender de `vh`, o limite se
+> ajusta sozinho à altura real visível) e `.sheet { max-height: 92% }` (percentual do backdrop,
+> não mais `vh`). **Verificado num navegador real** contra a mesma conta de teste, no mesmo
+> viewport (695×923, batendo com uma captura de tela real enviada pelo stakeholder): antes da
+> correção, reproduzi o problema exatamente como descrito; depois, a barra de navegação fica
+> visível abaixo do popup e o botão "Salvar" continua alcançável.
 
 ---
 
