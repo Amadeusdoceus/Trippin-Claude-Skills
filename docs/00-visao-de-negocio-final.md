@@ -279,7 +279,7 @@ Cada decisão segue o formato **o quê → alternativas → porquê → trade-of
 | Privacidade (CPF, localização) — LGPD | Alto | CPF **opcional** na v1; **sem** rastreio de localização na v1 |
 | Fontes gratuitas de preço de hospedagem instáveis | Médio | Conectores plugáveis; padrão keyless (OSM) sem preço ao vivo; pronto para parceiro |
 | **Manutenibilidade do frontend em arquivo único** (novo — resposta à lacuna `01 §2.5`), à medida que features se acumulam (docs, hospedagem, e-mail) | Médio | Mitigado por `validate-code.js` + Playwright (decisão #10); reavaliar migração para bundler se o arquivo ultrapassar um limiar de tamanho a definir |
-| **Dados sensíveis em documentos de viagem** (novo — resposta à lacuna `01 §2.6`): passaporte, cartão de embarque, dados financeiros de despesas, sem política de retenção/exclusão declarada | Alto | Definir por quanto tempo o conteúdo extraído fica armazenado e como o usuário solicita exclusão — **bloqueante** antes de iniciar a integração de e-mail (seção 9.3), recomendado também antes do MVP de Docs |
+| ~~**Dados sensíveis em documentos de viagem**~~ **resolvido em 2026-08-30 (E14/H14.3)**: retenção definida como "enquanto a viagem existir, sem expiração automática por tempo, exclusão manual a qualquer momento" — ver seção 13 | Alto → mitigado | Tela "Privacidade e dados" lista todo documento (de qualquer viagem do usuário) com data de upload e ação de excluir; exclusão remove arquivo + vínculo, mantém o evento já confirmado (H14.2) |
 | Verificação de escopo restrito do Gmail (Google) tem prazo incerto e pode exigir avaliação de segurança (CASA) | Alto — pode atrasar o v2 inteiro se subestimado | Iniciar o processo de verificação com Google assim que o escopo técnico for definido, independente da data de código pronto |
 | Registro/aprovação de app no Microsoft Entra/Graph para `Mail.Read` | Médio | Registrar o app cedo; usar permissão delegada restrita a pasta, não `Mail.ReadWrite` nem acesso a toda a organização |
 | Dado sensível de terceiros dentro dos e-mails do usuário (ex.: confirmação com dados de outro passageiro) | Alto | Extrair apenas os campos necessários (datas, local, código de reserva) e descartar o corpo do e-mail após a extração; não armazenar o e-mail bruto |
@@ -323,6 +323,19 @@ não definia retenção/exclusão para o conteúdo extraído de documentos. Isso
 
 Este item é tratado como **bloqueante para a v2 de e-mail** e como **pendência de compliance
 recomendada** para o MVP de Docs — não é opcional em nenhum dos dois casos.
+
+**Decisão adotada em 2026-08-30 (E14/H14.3), para o MVP de Docs (documentos anexados
+manualmente):** o conteúdo (arquivo original) e a referência ao evento extraído ficam retidos
+**enquanto a viagem existir**, sem expiração automática baseada em tempo — implementar uma expulsão
+por prazo exigiria um job agendado (ex.: `pg_cron` ou Edge Function em cron), infraestrutura que não
+existe hoje neste projeto e que não foi construída nesta entrega. O usuário pode excluir manualmente
+qualquer documento e os dados extraídos dele a qualquer momento pela tela "Privacidade e dados"
+(acessível pelo drawer, lista documentos de todas as suas viagens); a exclusão remove o arquivo do
+Storage e a linha do banco, mas mantém o evento do cronograma já confirmado a partir dele (H14.2) —
+a exclusão remove a prova/origem, não a decisão que o usuário já tomou ao confirmar o evento. Essa
+política é comunicada ao usuário na própria tela. **Ainda em aberto:** a mesma decisão para a futura
+integração de e-mail (seção 9.3) exige um padrão mais estrito (não guardar o corpo do e-mail bruto)
+e segue como bloqueante daquela iniciativa, não resolvida por esta entrega.
 
 ---
 
@@ -441,13 +454,17 @@ Registrado explicitamente para não virar suposição otimista:
   handler) é capturado com contexto (usuário, método/ação, argumentos sem dados sensíveis, stack) em
   `client_errors`, sem policy de leitura pela UI — é revisado direto no banco pela engenharia. Erros
   já tratados pela UI (senha errada, código inválido) são deliberadamente excluídos para não virar
-  ruído. H15.1 (tela de sincronização voltada ao usuário) segue adiada até existir E12; H15.3
-  (Playwright/CI antes do push) segue não iniciada.
+  ruído. H15.1 (tela de sincronização voltada ao usuário) estava adiada até existir E12 — **E12 foi
+  concluído em 2026-08-30**, então H15.1 já pode ser priorizada quando fizer sentido; ainda não foi
+  construída. H15.3 (Playwright/CI antes do push) segue não iniciada.
 - **Sem fluxo de "esqueci minha senha"** — Supabase Auth suporta nativamente, mas a tela não foi
   construída. Aceitável para os primeiros usuários de teste, não para uma base maior.
 - **Sem teste automatizado de RLS** — os dois bugs desta rodada só apareceram porque testamos com
   dois usuários reais num navegador. Não há suíte que rode isso a cada mudança de schema; hoje isso
   depende de repetir esse tipo de teste manualmente antes de mudanças em políticas de acesso.
+- **Sem push notification real** — as notificações do E13 (H13.2) só aparecem com o app aberto; não
+  há service worker nem Web Push/VAPID configurados, então nada chega com o app em segundo plano ou
+  fechado, ao contrário do que o critério original de H13.2 descrevia para mobile.
 
 ### 17.3 Arquitetura para crescer o número de usuários
 

@@ -20,7 +20,7 @@
 | **B — Esqueleto vertical (versão mínima)** | E5-min, E6-min, E7-min | Fluxo ponta-a-ponta usável o mais rápido possível: criar viagem → ver algo no painel → um evento → uma despesa | ✅ feito |
 | **C — Diferencial central** | E8 | Inteligência de Docs é o must-have que justifica o produto (`00-F` §4) — entra logo após o esqueleto mínimo existir, não no fim | ✅ feito (2026-08-30) |
 | **D — Completar módulos** | E6-completo, E7-completo, E9, E10, E11 | Semana/mês, reordenar, conflitos, métodos de divisão avançados, Mapa, Galeria, Sugestões | ✅ feito (2026-08-30; H10.1 com verificação manual pendente, ver E10) |
-| **E — Infraestrutura transversal** | E12, E13, E14, E15 | Offline, notificações/drawer, retenção/privacidade e log de erros só fazem sentido depois de existirem fluxos reais para sincronizar, notificar e logar | E12, E13 e H15.2 feitos; E14/H15.1/H15.3 não iniciados |
+| **E — Infraestrutura transversal** | E12, E13, E14, E15 | Offline, notificações/drawer, retenção/privacidade e log de erros só fazem sentido depois de existirem fluxos reais para sincronizar, notificar e logar | E12, E13, E14 e H15.2 feitos; só H15.1/H15.3 não iniciados |
 
 > **Nota adicionada em 2026-08-29 (`00-F` §17.2):** a parte de E15 mais urgente para crescer com
 > segurança — H15.2, captura estruturada de erros — foi adiantada e concluída fora de ordem, antes
@@ -43,6 +43,11 @@
 > pedido explícito. H13.1 (o drawer em si) já estava pronto desde a Fase A — só H13.2 (notificações
 > reais) era trabalho novo. Mesma limitação de ambiente de teste do H12.3 impediu confirmar a
 > renderização em navegador (a lógica de banco foi verificada por outro caminho, ver H13.2).
+>
+> **Nota adicionada em 2026-08-30 (mais tarde ainda):** E14 (privacidade/retenção) foi concluída, a
+> pedido explícito, fechando a Fase E inteira exceto H15.1 (agora liberada pelo E12, ainda não
+> construída) e H15.3 (Playwright/CI, frente separada de tooling). Resolve também um item que estava
+> em aberto desde a VN original (`00-F` §13/§11: retenção de dados sensíveis em documentos).
 
 ---
 
@@ -251,10 +256,13 @@
 
 - **H14.1** Tela "Privacidade e dados" (Perfil/drawer) listando, por documento anexado, a data de upload.
   - Critério de aceite: todo documento confirmado em H8.3 aparece nesta lista, com data de upload visível.
+  - **Status: feito em 2026-08-30, com escopo ampliado registrado.** A tela é global (vem do drawer, fora do contexto de uma viagem aberta) e lista documentos de **todas** as viagens do usuário, não só da que está aberta no momento — leitura mais literal do critério ("todo documento... aparece nesta lista") e mais útil para uma revisão de privacidade de verdade, que não deveria exigir entrar viagem por viagem. Cada item mostra o nome da viagem, a data de upload e se já foi vinculado a um evento (mesmo padrão visual da aba Docs). RLS já garante que só aparecem documentos de viagens onde o usuário é integrante — nenhum filtro extra necessário no cliente.
 - **H14.2** Ação "Excluir documento e dados extraídos", removendo o arquivo e os campos extraídos associados.
   - Critério de aceite: após a exclusão, nem o arquivo original nem os campos extraídos (data/local/horário vindos daquele documento) continuam acessíveis em nenhuma tela do app; o evento criado a partir dele permanece (a exclusão remove a prova/origem, não o evento já confirmado pelo usuário), a menos que o usuário também exclua o evento manualmente.
+  - **Status: feito em 2026-08-30.** Botão de excluir aparece só para quem subiu o documento ou é Admin da viagem (mesmo critério da policy de DELETE já existente desde a Fase A, `documents_delete_owner_or_admin` — o botão é só um atalho de UX, quem protege de verdade é o RLS). Exclusão remove o arquivo do Storage e a linha da tabela `documents`; o evento do cronograma criado a partir dele continua existindo. Verificado com um teste real: integrante convidado não consegue excluir (nem pelo botão, nem tentando direto via API — RLS bloqueia com 0 linhas afetadas), dono exclui normalmente, e o evento vinculado permanece intacto depois.
 - **H14.3** Definição e documentação do prazo de retenção padrão do conteúdo extraído de documentos (parâmetro a calibrar com engenharia/jurídico).
   - Critério de aceite: existe um valor padrão documentado e comunicado ao usuário na própria tela de Privacidade e dados (ex.: "mantido por X, ou até você excluir manualmente").
+  - **Status: feito em 2026-08-30, com parâmetro definido nesta entrega.** Adotado: documentos ficam retidos **enquanto a viagem existir**, sem expiração automática por tempo (expiração por prazo exigiria um job agendado — `pg_cron` ou Edge Function em cron — infraestrutura que não existe neste projeto e não foi construída aqui); exclusão só acontece manualmente via H14.2. Texto explicando isso aparece no topo da própria tela de Privacidade e dados. Decisão registrada em `00-F` §13 (antes um item bloqueante em aberto) e no risco correspondente em `00-F` §11.
 
 ## E15 — Log de erros e observabilidade
 

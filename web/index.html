@@ -376,6 +376,9 @@ const I18N = {
     notifMemberJoined: (name, trip) => `${name} entrou na viagem "${trip}"`,
     notifExpenseImpact: (desc, amount, currency, trip) => `Nova despesa "${desc}" (${currency} ${amount}) na viagem "${trip}" te afeta`,
     notifScheduleConflict: (eventTitle, conflictTitle, trip) => `Conflito de horário na viagem "${trip}": "${eventTitle}" colide com "${conflictTitle}"`,
+    retentionPolicyNote: 'Documentos anexados ficam guardados enquanto a viagem existir. Você pode excluir um documento e os dados extraídos dele a qualquer momento — o evento já criado a partir dele não é apagado junto.',
+    deleteDocumentAction: 'Excluir documento',
+    noDocumentsAnywhereYet: 'Nenhum documento anexado em nenhuma das suas viagens ainda.',
   },
   'en-US': {
     appName: 'Trippin',
@@ -513,6 +516,9 @@ const I18N = {
     notifMemberJoined: (name, trip) => `${name} joined the trip "${trip}"`,
     notifExpenseImpact: (desc, amount, currency, trip) => `New expense "${desc}" (${currency} ${amount}) on trip "${trip}" affects you`,
     notifScheduleConflict: (eventTitle, conflictTitle, trip) => `Schedule conflict on trip "${trip}": "${eventTitle}" clashes with "${conflictTitle}"`,
+    retentionPolicyNote: "Attached documents are kept for as long as the trip exists. You can delete a document and its extracted data at any time — any event already created from it is not removed.",
+    deleteDocumentAction: 'Delete document',
+    noDocumentsAnywhereYet: 'No documents attached in any of your trips yet.',
   },
 };
 // Demais 8 idiomas do roadmap ficam como stub — caem em EN-US como fallback (decisão #11).
@@ -1437,10 +1443,33 @@ const RawTrippinAPI = {
 
   // H14.2 — exclusão remove o arquivo e a referência; o evento já confirmado
   // (se houver) permanece, exatamente como 00-F §13 documenta.
-  async deleteDocument(documentId, storagePath) {
+  async deleteDocument(documentId, storagePath, tripId, userId) {
     await supabaseClient.storage.from('trip-documents').remove([storagePath]);
     const { error } = await supabaseClient.from('documents').delete().eq('id', documentId);
     if (error) throw error;
+    if (tripId) localStorage.removeItem(CACHE_PREFIX + `documents_${tripId}`);
+    if (userId) localStorage.removeItem(CACHE_PREFIX + `all_documents_${userId}`);
+  },
+
+  // ---- H14.1 Privacidade e dados — lista todos os documentos de todas as
+  // viagens do usuário (não só a viagem aberta no momento; a tela vem do
+  // drawer, fora do contexto de uma viagem). RLS já restringe a linhas de
+  // viagens onde o usuário é integrante — nenhum filtro explícito necessário.
+  async listAllDocumentsForUser(userId) {
+    return cachedRead(`all_documents_${userId}`, async () => {
+      const [docsRes, memberRes] = await Promise.all([
+        supabaseClient.from('documents').select('*, trip:trips(name)').order('uploaded_at', { ascending: false }),
+        supabaseClient.from('trip_members').select('trip_id, role').eq('user_id', userId),
+      ]);
+      if (docsRes.error) throw docsRes.error;
+      const roleByTrip = new Map((memberRes.data || []).map(m => [m.trip_id, m.role]));
+      return (docsRes.data || []).map(row => ({
+        id: row.id, tripId: row.trip_id, tripName: row.trip ? row.trip.name : '',
+        uploadedBy: row.uploaded_by, storagePath: row.storage_path,
+        extractedEventId: row.extracted_event_id, uploadedAt: row.uploaded_at,
+        canDelete: row.uploaded_by === userId || roleByTrip.get(row.trip_id) === 'admin',
+      }));
+    });
   },
 };
 
@@ -3126,6 +3155,53 @@ function NotificationsScreen({ lang, user, onChanged }) {
   );
 }
 
+// H14.1/H14.2 — tela global (vem do drawer, fora do contexto de uma viagem
+// aberta): lista documentos de todas as viagens do usuário, com a data de
+// upload e uma ação de exclusão quando ele é quem subiu o arquivo ou é Admin
+// da viagem (mesmo critério do RLS — o botão só é um atalho de UX, quem
+// protege de verdade é a policy do banco).
+function PrivacyDataScreen({ lang, user }) {
+  const [documents, setDocuments] = useState(null);
+  const [reloadKey, setReloadKey] = useState(0);
+
+  useEffect(() => {
+    let alive = true;
+    TrippinAPI.listAllDocumentsForUser(user.id).then(list => { if (alive) setDocuments(list); });
+    return () => { alive = false; };
+  }, [user.id, reloadKey]);
+
+  async function remove(doc) {
+    await TrippinAPI.deleteDocument(doc.id, doc.storagePath, doc.tripId, user.id);
+    setReloadKey(k => k + 1);
+  }
+
+  return (
+    <div className="screen">
+      <p className="hint" style={{ marginBottom: 12 }}>{t(lang, 'retentionPolicyNote')}</p>
+      {documents === null ? (
+        <p className="hint">{lang === 'pt-BR' ? 'Carregando…' : 'Loading…'}</p>
+      ) : documents.length === 0 ? (
+        <EmptyState title={t(lang, 'noDocumentsAnywhereYet')} />
+      ) : documents.map(doc => (
+        <Card key={doc.id}>
+          <div className="row-between">
+            <div>
+              <h3>{doc.tripName}</h3>
+              <p className="hint">{new Date(doc.uploadedAt).toLocaleString(lang)}</p>
+              {doc.extractedEventId && <p className="hint">✓ {t(lang, 'linkedToEvent')}</p>}
+            </div>
+            {doc.canDelete && (
+              <button className="btn btn-danger" style={{ width: 'auto' }} onClick={() => remove(doc)}>
+                {t(lang, 'deleteDocumentAction')}
+              </button>
+            )}
+          </div>
+        </Card>
+      ))}
+    </div>
+  );
+}
+
 /* =========================================================================
    App — orquestração de navegação (sem router: estado local é suficiente
    para o número de telas da Fase A)
@@ -3234,7 +3310,10 @@ function App() {
       {screen === 'notifications' && (
         <NotificationsScreen lang={lang} user={user} onChanged={refreshUnreadCount} />
       )}
-      {['settings', 'privacy'].includes(screen) && (
+      {screen === 'privacy' && (
+        <PrivacyDataScreen lang={lang} user={user} />
+      )}
+      {screen === 'settings' && (
         <PlaceholderScreen lang={lang} title={titles[screen]} />
       )}
 
