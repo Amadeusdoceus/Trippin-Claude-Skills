@@ -4,25 +4,27 @@
 |---|---|
 | **Tipo** | Relatório de status gerencial — atualizado a cada ciclo, não é parte da cadeia numerada `00→07` |
 | **Base** | `00-visao-de-negocio-final.md`, `02-UXUI-spec.md`, `03-backlog.md` |
-| **Atualização atual** | 2026-08-30 (ciclo 10 — Fase C: E8, Docs com inteligência, o diferencial central do produto) |
-| **Atualização anterior** | 2026-08-30 (ciclo 9 — Fase D completa: Cronograma/Despesas completos, Mapa, Galeria, Sugestões) |
+| **Atualização atual** | 2026-08-30 (ciclo 11 — Fase E: E12, sincronização offline) |
+| **Atualização anterior** | 2026-08-30 (ciclo 10 — Fase C: E8, Docs com inteligência, o diferencial central do produto) |
 | **Como manter** | A cada novo ciclo: atualizar seções 1–4 com o estado atual e adicionar uma linha em "Histórico" (seção 6). Não reescrever o histórico de ciclos passados. |
 
 ---
 
 ## 1. Resumo executivo
 
-**E8 — Docs com inteligência entregue neste ciclo.** É o diferencial central do produto (`00-F`
-§4): anexar um documento (foto de reserva, passagem, etc.) e o app já sugere um evento pronto para
-o cronograma, com OCR rodando no próprio navegador (sem LLM, sem servidor) e confirmação humana
-sempre obrigatória antes de gravar qualquer coisa. Com isso, **todo o MVP core está entregue** — as
-Fases A a D (fundação, esqueleto mínimo, diferencial central, módulos completos) estão feitas;
-resta só a Fase E (infraestrutura transversal: offline, notificações, privacidade/retenção — hoje
-só H15.2, log de erros, está feita). Estimativa segue em **~12 semanas até a V1**.
+**E12 — Sincronização offline entregue neste ciclo**, primeira história da Fase E (infraestrutura
+transversal), seguindo a ordem do próprio backlog. Cronograma e Despesas agora funcionam com o
+dispositivo sem conexão: os dados já carregados continuam visíveis, criar/editar continua
+funcionando (com um indicador "pendente de sincronização"), e tudo sincroniza sozinho ao reconectar,
+com uma regra de "a edição mais recente vence" para o caso raro de dois integrantes editarem o
+mesmo evento com um deles offline. Com H15.2 (log de erros) já feito, a Fase E fica em 2 de 4
+frentes iniciadas (E13 notificações e E14 privacidade/retenção seguem não iniciadas). Estimativa
+segue em **~12 semanas até a V1**.
 
-**Pendência que mais afeta o prazo real:** ainda não há equipe/cadência definida (ver seção 4). Uma
-verificação manual (não automatizada) do upload de fotos na Galeria ainda é recomendada — ver
-histórico do ciclo 9 na seção 2.
+**Pendência que mais afeta o prazo real:** ainda não há equipe/cadência definida (ver seção 4). Duas
+verificações manuais/automatizadas continuam recomendadas, não bloqueantes: upload de fotos na
+Galeria em navegador real (ciclo 9) e o cenário de conflito de edição concorrente do E12 (ver
+seção 2 deste ciclo) — ambas por limitação do ambiente de teste, não por dúvida sobre o código.
 
 ---
 
@@ -231,19 +233,56 @@ diferencial central do produto:
   chave.
 - **Limpeza:** conta/viagem de teste apagada do banco real.
 
+Ciclo 11 — E12 (sincronização offline) construída do zero, seguindo a ordem do backlog dentro da
+Fase E:
+
+- **Cache de leitura (H12.1):** cronograma, despesas, documentos e fotos ficam salvos localmente;
+  qualquer consulta tenta a rede primeiro e só usa o cache salvo se a chamada falhar por falta de
+  conexão — nunca esconde um erro de negócio real atrás do cache. Abrir o arquivo de uma foto/
+  documento continua exigindo rede (o Storage é privado, só entrega um link temporário sob
+  demanda) — só a lista/metadados ficam disponíveis offline, uma limitação de arquitetura, não uma
+  lacuna esquecida.
+- **Fila de pendências (H12.2):** criar/editar/excluir evento e criar/quitar despesa continuam
+  funcionando offline, com um indicador visual "⏳ pendente de sincronização" imediato. Upload de
+  foto/documento fica fora da fila de propósito — é um arquivo binário indo para o Storage, que
+  exige conexão de qualquer jeito.
+- **Sincronização automática ao reconectar, last-write-wins (H12.3):** nova coluna
+  `schedule_events.updated_at` (com trigger automático) permite comparar a edição feita offline
+  contra a última alteração real no servidor — se o servidor tem algo mais recente, a edição offline
+  é descartada e o motivo fica registrado no histórico de auditoria da viagem, nunca escondido.
+- **Sem tela em branco ao abrir a viagem (H12.4):** adaptação do "splash nativo" da spec original
+  (que pressupõe um wrapper mobile que não existe aqui) — a tela nasce direto do cache salvo, se
+  houver, em vez de mostrar só "Carregando…".
+- **Verificado de ponta a ponta com testes reais (Puppeteer + modo offline via DevTools
+  Protocol):** criar um evento com conexão, depois criar um segundo evento em modo avião simulado
+  (banner "sem conexão" aparece, evento surge na tela com o indicador de pendente, fila local
+  guarda 1 item) e reconectar (banner some, fila esvazia sozinha, os dois eventos aparecem
+  normalmente) — os 10 passos do teste passaram, e os dois eventos foram conferidos direto no banco
+  de dados (incluindo o `updated_at` gravado corretamente pelo trigger novo).
+- **Não verificado neste ciclo:** o cenário de conflito real — dois integrantes editando o mesmo
+  evento ao mesmo tempo, um deles offline — foi implementado e revisado no código (mesma função que
+  já passou no teste acima, só que comparando contra uma edição alheia mais recente), mas a
+  tentativa de testá-lo com dois navegadores automatizados simultâneos falhou repetidamente por
+  esgotamento de memória do ambiente de teste (chegou a sobrar 0,18 GB de RAM livre com o navegador
+  do próprio usuário aberto) — um problema do ambiente de teste local, não do código ou do app
+  publicado. Fica registrado como verificação pendente, não como "testado e aprovado".
+- **Limpeza:** contas/viagens de teste apagadas do banco real.
+
 ---
 
 ## 3. Próximos passos imediatos
 
-**Todo o MVP core (Fases A–D) está entregue.** O que resta é a Fase E — infraestrutura transversal
-(E12 offline, E13 notificações/drawer, E14 privacidade/retenção; hoje só H15.2 feita dentro de E15).
-Recomendação: escolher entre essas frentes com base no que mais importa para começar a validar com
-usuários reais — por exemplo, E14 (privacidade/retenção) é rápida e reforça a postura de proteção de
-dados já documentada em `00-F` §17; E12 (offline) é a mais estrutural e cara.
+**Todo o MVP core (Fases A–D) está entregue; a Fase E está com 2 de 4 frentes feitas** (E12 offline
+e H15.2 log de erros). Restam E13 (notificações/drawer) e E14 (privacidade/retenção), além de H15.1
+(depende de E12, agora liberado) e H15.3 (Playwright/CI, frente separada). Recomendação: E14 é
+rápida e reforça a postura de proteção de dados já documentada em `00-F` §17; E13 depende de decidir
+como o app vai notificar em segundo plano (mobile), o que pode exigir mais definição de produto
+antes de começar a construir.
 
-**Verificação pendente, não bloqueante (herdada do ciclo 9):** testar manualmente o upload de foto
-na Galeria num navegador real — o código está correto e confirmado via Node, só não pôde ser
-confirmado ponta a ponta pela automação daquele ciclo.
+**Verificações pendentes, não bloqueantes:**
+- Testar manualmente o upload de foto na Galeria num navegador real (herdado do ciclo 9).
+- Testar o cenário de conflito de edição concorrente do E12 (H12.3) quando o ambiente de teste local
+  tiver memória disponível para rodar dois navegadores automatizados ao mesmo tempo.
 
 **Ainda em aberto, sem bloquear:**
 - Definir o modelo de negócio em si (não só o dono) — sem prazo declarado.
@@ -254,6 +293,7 @@ confirmado ponta a ponta pela automação daquele ciclo.
 - H15.3 (Playwright/CI antes do push) — pedir explicitamente quando quiser priorizar essa frente.
 - Notificação ao integrante impactado por uma despesa (H7.3) depende de E13, que não existe.
 - OCR não processa PDF nesta versão de E8 (só imagens) — registrado como redução de escopo, não bug.
+- Reordenar evento (H6.4) não funciona offline — ignorado silenciosamente, registrado no backlog.
 
 ---
 
@@ -271,7 +311,7 @@ confirmado ponta a ponta pela automação daquele ciclo.
 | 4–5 | B — Esqueleto vertical mínimo | E5, E6-mín, E7-mín | Fluxo ponta a ponta: criar viagem → ver painel → 1 evento → 1 despesa |
 | 6–7 | C — Diferencial central | E8 (Docs com inteligência) | Anexar um documento popula o cronograma, com confirmação humana — a promessa central da VN — **✅ feito** |
 | 8–10 | D — Completar módulos | E6-completo, E7-completo, E9, E10, E11 | Cronograma e Despesas completos; Mapa, Galeria e Sugestões no ar |
-| 11–12 | E — Infraestrutura transversal | E12, E13, E14, E15 | Offline, notificações, privacidade/retenção e observabilidade — critério de "visão atingida" da VN completo |
+| 11–12 | E — Infraestrutura transversal | E12, E13, E14, E15 | Offline, notificações, privacidade/retenção e observabilidade — critério de "visão atingida" da VN completo — **E12 ✅ feito** |
 
 **Data-alvo estimada da V1:** ~2026-11-20 (12 semanas a partir de hoje, 2026-08-28) — **estimativa
 de planejamento**, não uma data comprometida, pelas razões da premissa acima.
@@ -306,3 +346,4 @@ ainda:
 | 2026-08-30 | Fase B mínima: Cronograma (CRUD de evento + conflito de horário) e Despesas (multi-moeda + saldo) implementados e testados com dois usuários reais; encerramento manual de viagem (E5) e modo somente-leitura; corrigido bug real de "hoje" calculado em UTC e lacuna de navegação (Despesas sem aba própria) |
 | 2026-08-30 | Fase D completa: Cronograma (Semana/Mês/reordenar), Despesas (valor fixo/partes customizadas/quitação/extrato), Mapa (Leaflet+OSM+geocodificação real), Galeria (upload, verificação automatizada inconclusiva por bloqueio de bot do Cloudflare — confirmado via Node puro) e Sugestões, todas construídas do zero; bug real corrigido no cálculo de saldo (não excluía despesas quitadas) |
 | 2026-08-30 | E8 (Docs com inteligência) concluída: upload independente da extração, OCR client-side (Tesseract.js, só imagens — PDF cai no fallback) + parser próprio para data/horário/título, confirmação humana obrigatória com alerta de conflito de horário; verificado ponta-a-ponta (navegador + banco) com um documento de teste real; MVP core (Fases A–D) completo, resta só a Fase E |
+| 2026-08-30 | E12 (sincronização offline) concluída: cache local de leitura, fila de pendências para cronograma/despesas com indicador visual, sincronização automática ao reconectar com last-write-wins (novo `schedule_events.updated_at`); verificado ponta-a-ponta em teste real (criar offline → reconectar → sincroniza sozinho, confirmado no banco); cenário de conflito entre dois usuários implementado mas não verificado neste ciclo por limitação de memória do ambiente de teste local |

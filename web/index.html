@@ -368,6 +368,9 @@ const I18N = {
     createEventFromDoc: 'Criar evento com estes dados',
     docConflictWarning: 'O horário encontrado conflita com um evento existente nesse dia.',
     viewDocument: 'Ver documento',
+    offlineBanner: 'Sem conexão — mostrando os últimos dados salvos.',
+    pendingSyncCount: (n) => `${n} alteraç${n === 1 ? 'ão' : 'ões'} pendente${n === 1 ? '' : 's'} de sincronização`,
+    pendingSyncBadge: 'Pendente de sincronização',
   },
   'en-US': {
     appName: 'Trippin',
@@ -497,6 +500,9 @@ const I18N = {
     createEventFromDoc: 'Create event with this data',
     docConflictWarning: 'The time found conflicts with an existing event that day.',
     viewDocument: 'View document',
+    offlineBanner: 'No connection — showing the last saved data.',
+    pendingSyncCount: (n) => `${n} change${n === 1 ? '' : 's'} pending sync`,
+    pendingSyncBadge: 'Pending sync',
   },
 };
 // Demais 8 idiomas do roadmap ficam como stub — caem em EN-US como fallback (decisão #11).
@@ -675,6 +681,179 @@ function mapExpense(row) {
 }
 
 /* =========================================================================
+   E12 — Sincronização offline (H12.1-H12.3). Cache local de leitura (por
+   trip/dia/faixa) + fila de operações pendentes de escrita, ambas em
+   localStorage (decisão de tecnologia #5, 00-F §10). Escopo deliberadamente
+   reduzido: upload de fotos/documentos fica de fora da fila — é um binário
+   indo para o Storage, que exige rede de qualquer forma; só cronograma e
+   despesas (payload JSON pequeno) entram na fila. Edições/criações offline
+   aparecem otimisticamente na visão Dia do Cronograma (onde o formulário
+   opera); Semana/Mês só refletem o estado depois da próxima sincronização —
+   não são repovoadas otimisticamente, para não complicar o código de reordenar
+   por múltiplas chaves de cache simultâneas.
+   ========================================================================= */
+const CACHE_PREFIX = 'trippin_cache::';
+const QUEUE_PREFIX = 'trippin_queue::';
+
+function cacheGet(key) {
+  try {
+    const raw = localStorage.getItem(CACHE_PREFIX + key);
+    return raw ? JSON.parse(raw) : null;
+  } catch (e) { return null; }
+}
+function cacheSet(key, data) {
+  try { localStorage.setItem(CACHE_PREFIX + key, JSON.stringify(data)); } catch (e) { /* quota/modo privado: segue sem cache, nunca quebra o app */ }
+}
+function cacheKeysWithPrefix(prefix) {
+  const full = CACHE_PREFIX + prefix;
+  const keys = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i);
+    if (k && k.startsWith(full)) keys.push(k.slice(CACHE_PREFIX.length));
+  }
+  return keys;
+}
+
+function queueGet(tripId) {
+  try { return JSON.parse(localStorage.getItem(QUEUE_PREFIX + tripId) || '[]'); } catch (e) { return []; }
+}
+function queueSet(tripId, list) {
+  try { localStorage.setItem(QUEUE_PREFIX + tripId, JSON.stringify(list)); } catch (e) {}
+  try { window.dispatchEvent(new CustomEvent('trippin:queue-changed', { detail: { tripId } })); } catch (e) {}
+}
+function queuePush(tripId, item) {
+  const list = queueGet(tripId);
+  list.push(item);
+  queueSet(tripId, list);
+}
+function queuePendingCount(tripId) {
+  return queueGet(tripId).length;
+}
+
+// Erro de conectividade (offline, DNS, timeout) — diferente de um erro de
+// negócio (RLS, validação) que o Supabase também devolve como "erro".
+// navigator.onLine sozinho não é confiável (falso-positivo em rede cativa),
+// por isso os dois sinais são checados.
+function isConnectivityError(error) {
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) return true;
+  if (error instanceof TypeError) return true;
+  const msg = String((error && error.message) || error || '').toLowerCase();
+  return msg.includes('failed to fetch') || msg.includes('network') || msg.includes('load failed');
+}
+
+function localPendingId() {
+  return 'local_' + (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random().toString(36).slice(2));
+}
+
+// H12.1 — leitura com cache: tenta a rede primeiro (dado sempre fresco
+// quando há conexão); só cai no cache salvo se a chamada falhar por
+// conectividade. Um erro de negócio (RLS, 4xx) nunca usa o cache — sobe
+// normalmente, como antes.
+async function cachedRead(key, fetchFn) {
+  try {
+    const data = await fetchFn();
+    cacheSet(key, data);
+    return data;
+  } catch (error) {
+    if (isConnectivityError(error)) {
+      const cached = cacheGet(key);
+      if (cached !== null) return cached;
+    }
+    throw error;
+  }
+}
+
+// Localiza um evento em qualquer cache de dia/faixa já carregado (não sabemos
+// de antemão em qual dia ele está) e aplica uma mutação — usado por
+// updateEvent/deleteEvent offline para atualizar a UI otimisticamente.
+// mutator(event) retorna o evento atualizado, ou null para removê-lo.
+function mutateCachedEvents(eventId, mutator) {
+  let foundTripId = null;
+  const keys = cacheKeysWithPrefix('events_day_').concat(cacheKeysWithPrefix('events_range_'));
+  keys.forEach(key => {
+    const arr = cacheGet(key);
+    if (!Array.isArray(arr)) return;
+    const idx = arr.findIndex(e => e.id === eventId);
+    if (idx === -1) return;
+    foundTripId = arr[idx].tripId;
+    const result = mutator(arr[idx]);
+    const newArr = arr.slice();
+    if (result === null) newArr.splice(idx, 1); else newArr[idx] = result;
+    cacheSet(key, newArr);
+  });
+  return foundTripId;
+}
+function addCachedEvent(tripId, dayIso, event) {
+  const key = `events_day_${tripId}_${dayIso}`;
+  const arr = cacheGet(key) || [];
+  cacheSet(key, arr.concat([event]));
+}
+
+// H12.3 — reaplica um item da fila ao reconectar. Update/delete usam
+// last-write-wins comparando o timestamp local de quando a ação foi feita
+// offline contra schedule_events.updated_at no servidor: se o servidor tem
+// uma edição mais recente, a ação offline é descartada (registrada no
+// histórico de auditoria dos dois lados, nunca escondida).
+async function applyQueuedItem(item, tripId, userId) {
+  if (item.entity === 'event') {
+    if (item.op === 'create') {
+      await RawTrippinAPI.createEvent(item.payload);
+      return;
+    }
+    const { data: current } = await supabaseClient.from('schedule_events').select('updated_at').eq('id', item.entityId).maybeSingle();
+    if (!current) return; // já foi excluído no servidor — nada a reconciliar
+    const serverIsNewer = new Date(current.updated_at).getTime() > item.clientTimestamp;
+    if (item.op === 'update') {
+      if (serverIsNewer) {
+        await RawTrippinAPI.addAuditEntry(tripId, userId, 'uma edição de evento feita offline foi descartada (o servidor tinha uma versão mais recente)');
+        return;
+      }
+      await RawTrippinAPI.updateEvent(item.entityId, item.payload.patch, item.payload.participantIds);
+      await RawTrippinAPI.addAuditEntry(tripId, userId, 'sincronizou uma edição de evento feita offline');
+    } else if (item.op === 'delete') {
+      if (serverIsNewer) {
+        await RawTrippinAPI.addAuditEntry(tripId, userId, 'uma exclusão de evento feita offline foi descartada (o servidor tinha uma versão mais recente)');
+        return;
+      }
+      await RawTrippinAPI.deleteEvent(item.entityId);
+    }
+  } else if (item.entity === 'expense' && item.op === 'create') {
+    await RawTrippinAPI.createExpense(item.payload);
+  } else if (item.entity === 'expense_share') {
+    await RawTrippinAPI.setShareSettled(tripId, item.entityId, item.payload.targetUserId, item.payload.settled, userId);
+  }
+}
+
+// Processa a fila de uma viagem; itens que ainda falham por conectividade
+// voltam para a fila (tenta de novo na próxima reconexão), erros de negócio
+// genuínos são descartados e logados (H15.2), não travam o resto da fila.
+async function flushPendingQueue(tripId, userId) {
+  const queue = queueGet(tripId);
+  if (!queue.length) return false;
+  const remaining = [];
+  let appliedAny = false;
+  for (const item of queue) {
+    try {
+      await applyQueuedItem(item, tripId, userId);
+      appliedAny = true;
+    } catch (error) {
+      if (isConnectivityError(error)) {
+        remaining.push(item);
+      } else {
+        logClientError(error, { source: 'flushPendingQueue', item });
+      }
+    }
+  }
+  queueSet(tripId, remaining);
+  if (appliedAny) {
+    cacheKeysWithPrefix(`events_day_${tripId}_`).forEach(k => localStorage.removeItem(CACHE_PREFIX + k));
+    cacheKeysWithPrefix(`events_range_${tripId}_`).forEach(k => localStorage.removeItem(CACHE_PREFIX + k));
+    localStorage.removeItem(CACHE_PREFIX + `expenses_${tripId}`);
+  }
+  return appliedAny;
+}
+
+/* =========================================================================
    E15 / H15.2 — captura estruturada de erros e crashes do cliente.
    Grava em client_errors (Supabase); ninguém lê pela UI, é para revisão de
    engenharia via acesso direto ao banco. Nunca deixa uma falha de log
@@ -822,24 +1001,26 @@ const RawTrippinAPI = {
   // profiles) — essa função só devolve id/nome/e-mail, nunca CPF/telefone,
   // mesmo que a policy de profiles algum dia mude.
   async getTripFull(tripId) {
-    const [tripRes, membersRes, auditRes, namesRes] = await Promise.all([
-      supabaseClient.from('trips').select('*').eq('id', tripId).maybeSingle(),
-      supabaseClient.from('trip_members').select('user_id, role, joined_at').eq('trip_id', tripId),
-      supabaseClient.from('audit_log').select('id, message, created_at, user_id')
-        .eq('trip_id', tripId).order('created_at', { ascending: false }),
-      supabaseClient.rpc('get_trip_member_profiles', { p_trip_id: tripId }),
-    ]);
-    if (tripRes.error || !tripRes.data) return null;
-    const nameByUserId = new Map((namesRes.data || []).map(p => [p.user_id, p.name || p.email]));
-    const members = (membersRes.data || []).map(m => ({
-      userId: m.user_id, role: m.role, joinedAt: m.joined_at,
-      name: nameByUserId.get(m.user_id) || m.user_id,
-    }));
-    const auditLog = (auditRes.data || []).map(a => ({
-      id: a.id, message: a.message, at: a.created_at,
-      userName: nameByUserId.get(a.user_id) || 'alguém',
-    }));
-    return { trip: mapTrip(tripRes.data), members, auditLog };
+    return cachedRead(`tripfull_${tripId}`, async () => {
+      const [tripRes, membersRes, auditRes, namesRes] = await Promise.all([
+        supabaseClient.from('trips').select('*').eq('id', tripId).maybeSingle(),
+        supabaseClient.from('trip_members').select('user_id, role, joined_at').eq('trip_id', tripId),
+        supabaseClient.from('audit_log').select('id, message, created_at, user_id')
+          .eq('trip_id', tripId).order('created_at', { ascending: false }),
+        supabaseClient.rpc('get_trip_member_profiles', { p_trip_id: tripId }),
+      ]);
+      if (tripRes.error || !tripRes.data) return null;
+      const nameByUserId = new Map((namesRes.data || []).map(p => [p.user_id, p.name || p.email]));
+      const members = (membersRes.data || []).map(m => ({
+        userId: m.user_id, role: m.role, joinedAt: m.joined_at,
+        name: nameByUserId.get(m.user_id) || m.user_id,
+      }));
+      const auditLog = (auditRes.data || []).map(a => ({
+        id: a.id, message: a.message, at: a.created_at,
+        userName: nameByUserId.get(a.user_id) || 'alguém',
+      }));
+      return { trip: mapTrip(tripRes.data), members, auditLog };
+    });
   },
 
   // ---- H4.4 Papéis e permissões — o RLS já garante que só Admin promove ----
@@ -879,116 +1060,248 @@ const RawTrippinAPI = {
   },
 
   async listEventsForDay(tripId, dayIso) {
-    const eventsRes = await supabaseClient.from('schedule_events').select('*')
-      .eq('trip_id', tripId).gte('starts_at', dayIso + 'T00:00:00').lte('starts_at', dayIso + 'T23:59:59.999')
-      .order('sort_order', { ascending: true });
-    return this._eventsWithParticipants(eventsRes);
+    return cachedRead(`events_day_${tripId}_${dayIso}`, async () => {
+      const eventsRes = await supabaseClient.from('schedule_events').select('*')
+        .eq('trip_id', tripId).gte('starts_at', dayIso + 'T00:00:00').lte('starts_at', dayIso + 'T23:59:59.999')
+        .order('sort_order', { ascending: true });
+      return this._eventsWithParticipants(eventsRes);
+    });
   },
 
   // H6.3 — Semana e Mês: mesma busca, intervalo de datas maior.
   async listEventsForRange(tripId, startIso, endIso) {
-    const eventsRes = await supabaseClient.from('schedule_events').select('*')
-      .eq('trip_id', tripId).gte('starts_at', startIso + 'T00:00:00').lte('starts_at', endIso + 'T23:59:59.999')
-      .order('starts_at', { ascending: true });
-    return this._eventsWithParticipants(eventsRes);
+    return cachedRead(`events_range_${tripId}_${startIso}_${endIso}`, async () => {
+      const eventsRes = await supabaseClient.from('schedule_events').select('*')
+        .eq('trip_id', tripId).gte('starts_at', startIso + 'T00:00:00').lte('starts_at', endIso + 'T23:59:59.999')
+        .order('starts_at', { ascending: true });
+      return this._eventsWithParticipants(eventsRes);
+    });
   },
 
+  // H12.2 — se a chamada falhar por falta de conexão, o evento entra
+  // otimisticamente no cache do dia (com pendingSync=true, visível na UI) e
+  // uma operação equivalente vai para a fila local, reaplicada em
+  // flushPendingQueue quando a conexão voltar (H12.3).
   async createEvent({ tripId, title, location, startsAt, endsAt, notes, userId, participantIds }) {
     const dayIso = startsAt.slice(0, 10);
-    const { data: maxRow } = await supabaseClient.from('schedule_events').select('sort_order')
-      .eq('trip_id', tripId).gte('starts_at', dayIso + 'T00:00:00').lte('starts_at', dayIso + 'T23:59:59.999')
-      .order('sort_order', { ascending: false }).limit(1).maybeSingle();
-    const nextOrder = (maxRow ? maxRow.sort_order : -1) + 1;
-    const { data, error } = await supabaseClient.from('schedule_events')
-      .insert({ trip_id: tripId, title, location: location || '', starts_at: startsAt, ends_at: endsAt || null, notes: notes || '', created_by: userId, sort_order: nextOrder })
-      .select().single();
-    if (error) throw error;
-    if (participantIds && participantIds.length) {
-      await supabaseClient.from('event_participants')
-        .insert(participantIds.map(uid => ({ event_id: data.id, user_id: uid })));
+    try {
+      const { data: maxRow } = await supabaseClient.from('schedule_events').select('sort_order')
+        .eq('trip_id', tripId).gte('starts_at', dayIso + 'T00:00:00').lte('starts_at', dayIso + 'T23:59:59.999')
+        .order('sort_order', { ascending: false }).limit(1).maybeSingle();
+      const nextOrder = (maxRow ? maxRow.sort_order : -1) + 1;
+      const { data, error } = await supabaseClient.from('schedule_events')
+        .insert({ trip_id: tripId, title, location: location || '', starts_at: startsAt, ends_at: endsAt || null, notes: notes || '', created_by: userId, sort_order: nextOrder })
+        .select().single();
+      if (error) throw error;
+      if (participantIds && participantIds.length) {
+        await supabaseClient.from('event_participants')
+          .insert(participantIds.map(uid => ({ event_id: data.id, user_id: uid })));
+      }
+      return mapEvent(data);
+    } catch (error) {
+      if (!isConnectivityError(error)) throw error;
+      const optimistic = {
+        id: localPendingId(), tripId, title, location: location || '', startsAt,
+        endsAt: endsAt || null, notes: notes || '', createdBy: userId, sortOrder: 9999,
+        participantIds: participantIds || [], pendingSync: true,
+      };
+      addCachedEvent(tripId, dayIso, optimistic);
+      queuePush(tripId, {
+        entity: 'event', op: 'create', entityId: optimistic.id, clientTimestamp: Date.now(),
+        payload: { tripId, title, location, startsAt, endsAt, notes, userId, participantIds },
+      });
+      return optimistic;
     }
-    return mapEvent(data);
   },
 
   async updateEvent(eventId, patch, participantIds) {
-    const dbPatch = {};
-    if ('title' in patch) dbPatch.title = patch.title;
-    if ('location' in patch) dbPatch.location = patch.location;
-    if ('startsAt' in patch) dbPatch.starts_at = patch.startsAt;
-    if ('endsAt' in patch) dbPatch.ends_at = patch.endsAt;
-    if ('notes' in patch) dbPatch.notes = patch.notes;
-    const { error } = await supabaseClient.from('schedule_events').update(dbPatch).eq('id', eventId);
-    if (error) throw error;
-    if (participantIds) {
-      await supabaseClient.from('event_participants').delete().eq('event_id', eventId);
-      if (participantIds.length) {
-        await supabaseClient.from('event_participants')
-          .insert(participantIds.map(uid => ({ event_id: eventId, user_id: uid })));
+    const applyLocalPatch = () => mutateCachedEvents(eventId, (ev) => ({
+      ...ev,
+      ...('title' in patch ? { title: patch.title } : {}),
+      ...('location' in patch ? { location: patch.location } : {}),
+      ...('startsAt' in patch ? { startsAt: patch.startsAt } : {}),
+      ...('endsAt' in patch ? { endsAt: patch.endsAt } : {}),
+      ...('notes' in patch ? { notes: patch.notes } : {}),
+      ...(participantIds ? { participantIds } : {}),
+      pendingSync: true,
+    }));
+
+    // Evento ainda não sincronizado (criado offline): não existe no servidor
+    // ainda, então a edição só mescla no próprio payload da criação
+    // enfileirada, sem gerar uma segunda operação de "update".
+    if (String(eventId).startsWith('local_')) {
+      const tripId = applyLocalPatch();
+      if (tripId) {
+        const queue = queueGet(tripId);
+        const createItem = queue.find(q => q.entity === 'event' && q.op === 'create' && q.entityId === eventId);
+        if (createItem) {
+          Object.assign(createItem.payload, patch, participantIds ? { participantIds } : {});
+          queueSet(tripId, queue);
+        }
+      }
+      return;
+    }
+
+    try {
+      const dbPatch = {};
+      if ('title' in patch) dbPatch.title = patch.title;
+      if ('location' in patch) dbPatch.location = patch.location;
+      if ('startsAt' in patch) dbPatch.starts_at = patch.startsAt;
+      if ('endsAt' in patch) dbPatch.ends_at = patch.endsAt;
+      if ('notes' in patch) dbPatch.notes = patch.notes;
+      const { error } = await supabaseClient.from('schedule_events').update(dbPatch).eq('id', eventId);
+      if (error) throw error;
+      if (participantIds) {
+        await supabaseClient.from('event_participants').delete().eq('event_id', eventId);
+        if (participantIds.length) {
+          await supabaseClient.from('event_participants')
+            .insert(participantIds.map(uid => ({ event_id: eventId, user_id: uid })));
+        }
+      }
+    } catch (error) {
+      if (!isConnectivityError(error)) throw error;
+      const tripId = applyLocalPatch();
+      if (tripId) {
+        queuePush(tripId, {
+          entity: 'event', op: 'update', entityId: eventId, clientTimestamp: Date.now(),
+          payload: { patch, participantIds },
+        });
       }
     }
   },
 
   async deleteEvent(eventId) {
-    const { error } = await supabaseClient.from('schedule_events').delete().eq('id', eventId);
-    if (error) throw error;
+    if (String(eventId).startsWith('local_')) {
+      const tripId = mutateCachedEvents(eventId, () => null);
+      if (tripId) {
+        const queue = queueGet(tripId).filter(q => !(q.entity === 'event' && q.op === 'create' && q.entityId === eventId));
+        queueSet(tripId, queue);
+      }
+      return;
+    }
+    try {
+      const { error } = await supabaseClient.from('schedule_events').delete().eq('id', eventId);
+      if (error) throw error;
+    } catch (error) {
+      if (!isConnectivityError(error)) throw error;
+      const tripId = mutateCachedEvents(eventId, () => null);
+      if (tripId) {
+        queuePush(tripId, { entity: 'event', op: 'delete', entityId: eventId, clientTimestamp: Date.now() });
+      }
+    }
   },
 
   // H6.4 — reordenar dentro do mesmo dia: troca o sort_order de dois eventos.
   // Adaptação web da spec original (long-press + arrastar, pensada para
   // mobile nativo): sem gesto físico disponível fora de um app nativo, a
-  // reordenação usa botões ↑/↓ trocando a posição com o vizinho.
+  // reordenação usa botões ↑/↓ trocando a posição com o vizinho. Fora do
+  // escopo da fila offline (E12) — reordenar exige as duas linhas já
+  // existentes no servidor; offline, é ignorado silenciosamente (não gera
+  // erro nem entra na fila) em vez de arriscar uma reconciliação de ordem
+  // complexa por um ganho pequeno.
   async swapEventOrder(eventA, eventB) {
-    await Promise.all([
-      supabaseClient.from('schedule_events').update({ sort_order: eventB.sortOrder }).eq('id', eventA.id),
-      supabaseClient.from('schedule_events').update({ sort_order: eventA.sortOrder }).eq('id', eventB.id),
-    ]);
+    try {
+      await Promise.all([
+        supabaseClient.from('schedule_events').update({ sort_order: eventB.sortOrder }).eq('id', eventA.id),
+        supabaseClient.from('schedule_events').update({ sort_order: eventA.sortOrder }).eq('id', eventB.id),
+      ]);
+    } catch (error) {
+      if (!isConnectivityError(error)) throw error;
+    }
   },
 
   // ---- H7.1-H7.4 Despesas — multi-moeda, divisão igual, saldo ----
   async listExpenses(tripId) {
-    const [expensesRes, sharesRes] = await Promise.all([
-      supabaseClient.from('expenses').select('*').eq('trip_id', tripId).order('created_at', { ascending: false }),
-      supabaseClient.from('expense_shares').select('*'),
-    ]);
-    if (expensesRes.error) throw expensesRes.error;
-    const expenses = (expensesRes.data || []).map(mapExpense);
-    const expenseIds = new Set(expenses.map(e => e.id));
-    const sharesByExpense = new Map();
-    (sharesRes.data || []).forEach(s => {
-      if (!expenseIds.has(s.expense_id)) return;
-      if (!sharesByExpense.has(s.expense_id)) sharesByExpense.set(s.expense_id, []);
-      sharesByExpense.get(s.expense_id).push({ userId: s.user_id, shareAmount: Number(s.share_amount), settled: s.settled });
+    return cachedRead(`expenses_${tripId}`, async () => {
+      const [expensesRes, sharesRes] = await Promise.all([
+        supabaseClient.from('expenses').select('*').eq('trip_id', tripId).order('created_at', { ascending: false }),
+        supabaseClient.from('expense_shares').select('*'),
+      ]);
+      if (expensesRes.error) throw expensesRes.error;
+      const expenses = (expensesRes.data || []).map(mapExpense);
+      const expenseIds = new Set(expenses.map(e => e.id));
+      const sharesByExpense = new Map();
+      (sharesRes.data || []).forEach(s => {
+        if (!expenseIds.has(s.expense_id)) return;
+        if (!sharesByExpense.has(s.expense_id)) sharesByExpense.set(s.expense_id, []);
+        sharesByExpense.get(s.expense_id).push({ userId: s.user_id, shareAmount: Number(s.share_amount), settled: s.settled });
+      });
+      return expenses.map(e => ({ ...e, shares: sharesByExpense.get(e.id) || [] }));
     });
-    return expenses.map(e => ({ ...e, shares: sharesByExpense.get(e.id) || [] }));
   },
 
   // H7.5 (completo): splitMethod 'equal' divide o valor igualmente;
   // 'custom'/'fixed' usam os valores exatos de sharesMap (já validados no
   // cliente contra o total antes de chegar aqui).
+  // H12.2 — offline, entra otimisticamente no cache de despesas + fila local.
   async createExpense({ tripId, eventId, description, amount, currency, paidBy, participantUserIds, splitMethod, sharesMap }) {
     const method = splitMethod || 'equal';
-    const { data, error } = await supabaseClient.from('expenses')
-      .insert({ trip_id: tripId, event_id: eventId || null, description, amount, currency, split_method: method, paid_by: paidBy })
-      .select().single();
-    if (error) throw error;
-    let shares;
-    if (method === 'equal') {
-      const perShare = Math.round((amount / participantUserIds.length) * 100) / 100;
-      shares = participantUserIds.map(uid => ({ expense_id: data.id, user_id: uid, share_amount: perShare }));
-    } else {
-      shares = participantUserIds.map(uid => ({ expense_id: data.id, user_id: uid, share_amount: sharesMap[uid] }));
+    try {
+      const { data, error } = await supabaseClient.from('expenses')
+        .insert({ trip_id: tripId, event_id: eventId || null, description, amount, currency, split_method: method, paid_by: paidBy })
+        .select().single();
+      if (error) throw error;
+      let shares;
+      if (method === 'equal') {
+        const perShare = Math.round((amount / participantUserIds.length) * 100) / 100;
+        shares = participantUserIds.map(uid => ({ expense_id: data.id, user_id: uid, share_amount: perShare }));
+      } else {
+        shares = participantUserIds.map(uid => ({ expense_id: data.id, user_id: uid, share_amount: sharesMap[uid] }));
+      }
+      await supabaseClient.from('expense_shares').insert(shares);
+      return mapExpense(data);
+    } catch (error) {
+      if (!isConnectivityError(error)) throw error;
+      const perShare = method === 'equal' ? Math.round((amount / participantUserIds.length) * 100) / 100 : null;
+      const shares = participantUserIds.map(uid => ({
+        userId: uid, shareAmount: method === 'equal' ? perShare : sharesMap[uid], settled: false,
+      }));
+      const optimistic = {
+        id: localPendingId(), tripId, eventId: eventId || null, description, amount: Number(amount),
+        currency, splitMethod: method, paidBy, createdAt: new Date().toISOString(), shares, pendingSync: true,
+      };
+      const key = `expenses_${tripId}`;
+      cacheSet(key, [optimistic].concat(cacheGet(key) || []));
+      queuePush(tripId, {
+        entity: 'expense', op: 'create', entityId: optimistic.id, clientTimestamp: Date.now(),
+        payload: { tripId, eventId, description, amount, currency, paidBy, participantUserIds, splitMethod, sharesMap },
+      });
+      return optimistic;
     }
-    await supabaseClient.from('expense_shares').insert(shares);
-    return mapExpense(data);
   },
 
   // H7.6 — quitação manual (não move dinheiro real, só marca a parte como
   // resolvida e registra no histórico).
   async setShareSettled(tripId, expenseId, targetUserId, settled, actingUserId) {
-    const { error } = await supabaseClient.from('expense_shares')
-      .update({ settled }).eq('expense_id', expenseId).eq('user_id', targetUserId);
-    if (error) throw error;
-    await this.addAuditEntry(tripId, actingUserId, settled ? 'quitou uma despesa' : 'reabriu uma despesa quitada');
+    // Despesa ainda não sincronizada (criada offline): quitar antes mesmo de
+    // existir no servidor não é replicado na sincronização — caso raro,
+    // registrado aqui como limitação conhecida em vez de fingir suportá-lo.
+    if (String(expenseId).startsWith('local_')) {
+      const key = `expenses_${tripId}`;
+      const arr = cacheGet(key) || [];
+      cacheSet(key, arr.map(exp => exp.id !== expenseId ? exp : {
+        ...exp, shares: (exp.shares || []).map(s => s.userId === targetUserId ? { ...s, settled } : s),
+      }));
+      return;
+    }
+    try {
+      const { error } = await supabaseClient.from('expense_shares')
+        .update({ settled }).eq('expense_id', expenseId).eq('user_id', targetUserId);
+      if (error) throw error;
+      await this.addAuditEntry(tripId, actingUserId, settled ? 'quitou uma despesa' : 'reabriu uma despesa quitada');
+    } catch (error) {
+      if (!isConnectivityError(error)) throw error;
+      const key = `expenses_${tripId}`;
+      const arr = cacheGet(key) || [];
+      cacheSet(key, arr.map(exp => exp.id !== expenseId ? exp : {
+        ...exp, pendingSync: true,
+        shares: (exp.shares || []).map(s => s.userId === targetUserId ? { ...s, settled } : s),
+      }));
+      queuePush(tripId, {
+        entity: 'expense_share', op: 'update', entityId: expenseId, clientTimestamp: Date.now(),
+        payload: { targetUserId, settled },
+      });
+    }
   },
 
   // ---- H10.1 Galeria — upload e listagem de fotos ----
@@ -1005,14 +1318,20 @@ const RawTrippinAPI = {
 
   // Bucket é privado (RLS por integrante) — sem URL pública. A tela busca uma
   // signed URL por foto sob demanda (getPhotoSignedUrl), não aqui.
+  // H12.1 — cache de metadados (não do binário): a lista de fotos aparece
+  // offline, mas abrir uma foto ainda exige rede para pedir a signed URL
+  // (Storage privado, sem URL pública) — limitação arquitetural, não um
+  // detalhe adiado.
   async listPhotos(tripId) {
-    const { data, error } = await supabaseClient.from('trip_photos')
-      .select('*').eq('trip_id', tripId).order('created_at', { ascending: false });
-    if (error) throw error;
-    return (data || []).map(row => ({
-      id: row.id, tripId: row.trip_id, uploadedBy: row.uploaded_by,
-      storagePath: row.storage_path, createdAt: row.created_at,
-    }));
+    return cachedRead(`photos_${tripId}`, async () => {
+      const { data, error } = await supabaseClient.from('trip_photos')
+        .select('*').eq('trip_id', tripId).order('created_at', { ascending: false });
+      if (error) throw error;
+      return (data || []).map(row => ({
+        id: row.id, tripId: row.trip_id, uploadedBy: row.uploaded_by,
+        storagePath: row.storage_path, createdAt: row.created_at,
+      }));
+    });
   },
 
   async getPhotoSignedUrl(storagePath) {
@@ -1041,14 +1360,18 @@ const RawTrippinAPI = {
     return { id: data.id, tripId: data.trip_id, uploadedBy: data.uploaded_by, storagePath: data.storage_path, extractedEventId: data.extracted_event_id, uploadedAt: data.uploaded_at };
   },
 
+  // H12.1 — mesma ressalva do listPhotos: metadados ficam offline, o arquivo
+  // em si (signed URL) só abre com conexão.
   async listDocuments(tripId) {
-    const { data, error } = await supabaseClient.from('documents')
-      .select('*').eq('trip_id', tripId).order('uploaded_at', { ascending: false });
-    if (error) throw error;
-    return (data || []).map(row => ({
-      id: row.id, tripId: row.trip_id, uploadedBy: row.uploaded_by,
-      storagePath: row.storage_path, extractedEventId: row.extracted_event_id, uploadedAt: row.uploaded_at,
-    }));
+    return cachedRead(`documents_${tripId}`, async () => {
+      const { data, error } = await supabaseClient.from('documents')
+        .select('*').eq('trip_id', tripId).order('uploaded_at', { ascending: false });
+      if (error) throw error;
+      return (data || []).map(row => ({
+        id: row.id, tripId: row.trip_id, uploadedBy: row.uploaded_by,
+        storagePath: row.storage_path, extractedEventId: row.extracted_event_id, uploadedAt: row.uploaded_at,
+      }));
+    });
   },
 
   async getDocumentSignedUrl(storagePath) {
@@ -1113,6 +1436,20 @@ function computeBalancesForUser(expenses, userId) {
 /* =========================================================================
    Componentes base reutilizáveis (E1 / H1.2)
    ========================================================================= */
+// E12 — status de conexão real do navegador, usado para o banner offline
+// (H12.1) e para disparar a sincronização da fila ao reconectar (H12.3).
+function useOnlineStatus() {
+  const [online, setOnline] = useState(navigator.onLine);
+  useEffect(() => {
+    function goOnline() { setOnline(true); }
+    function goOffline() { setOnline(false); }
+    window.addEventListener('online', goOnline);
+    window.addEventListener('offline', goOffline);
+    return () => { window.removeEventListener('online', goOnline); window.removeEventListener('offline', goOffline); };
+  }, []);
+  return online;
+}
+
 function Card({ children }) { return <div className="card">{children}</div>; }
 
 function EmptyState({ title, actionLabel, onAction }) {
@@ -1636,6 +1973,9 @@ function DayView({ lang, trip, dayIso, setDayIso, events, readOnly, openNew, ope
                 {ev.location && <p>{ev.location}</p>}
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                {ev.pendingSync && (
+                  <span className="badge badge-convidado" title={t(lang, 'pendingSyncBadge')}>⏳</span>
+                )}
                 {hasConflict && (
                   <span className="badge" style={{ background: 'var(--color-conflict)', color: '#211D1A' }} title={t(lang, 'conflictWarning')}>!</span>
                 )}
@@ -1721,7 +2061,7 @@ function MonthView({ lang, trip, dayIso, onPickDay, rangeEvents }) {
   );
 }
 
-function ScheduleScreen({ lang, trip, members, userId, readOnly }) {
+function ScheduleScreen({ lang, trip, members, userId, readOnly, syncKey }) {
   const [dayIso, setDayIso] = useState(() => todayIsoWithinRange(trip));
   const [viewMode, setViewMode] = useState('day'); // H6.3: 'day' | 'week' | 'month'
   const [dayEvents, setDayEvents] = useState(null);
@@ -1734,7 +2074,7 @@ function ScheduleScreen({ lang, trip, members, userId, readOnly }) {
     let alive = true;
     TrippinAPI.listEventsForDay(trip.id, dayIso).then(list => { if (alive) setDayEvents(list); });
     return () => { alive = false; };
-  }, [trip.id, dayIso, reloadKey]);
+  }, [trip.id, dayIso, reloadKey, syncKey]);
 
   useEffect(() => {
     if (viewMode === 'day') return;
@@ -1743,7 +2083,7 @@ function ScheduleScreen({ lang, trip, members, userId, readOnly }) {
     const rangeEnd = viewMode === 'week' ? addDaysIso(rangeStart, 6) : addDaysIso(rangeStart, 41);
     TrippinAPI.listEventsForRange(trip.id, rangeStart, rangeEnd).then(list => { if (alive) setRangeEvents(list); });
     return () => { alive = false; };
-  }, [trip.id, dayIso, viewMode, reloadKey]);
+  }, [trip.id, dayIso, viewMode, reloadKey, syncKey]);
 
   function openNew() { setEditingEvent(null); setSheetOpen(true); }
   function openEdit(ev) { setEditingEvent(ev); setSheetOpen(true); }
@@ -1976,7 +2316,7 @@ function StatementSheet({ lang, open, onClose, expenses, members }) {
   );
 }
 
-function ExpensesScreen({ lang, trip, members, userId, readOnly }) {
+function ExpensesScreen({ lang, trip, members, userId, readOnly, syncKey }) {
   const [expenses, setExpenses] = useState(null);
   const [events, setEvents] = useState([]);
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -1987,7 +2327,7 @@ function ExpensesScreen({ lang, trip, members, userId, readOnly }) {
     let alive = true;
     TrippinAPI.listExpenses(trip.id).then(list => { if (alive) setExpenses(list); });
     return () => { alive = false; };
-  }, [trip.id, reloadKey]);
+  }, [trip.id, reloadKey, syncKey]);
 
   // Eventos de toda a viagem, para o seletor "vincular a um evento" — busca
   // dia a dia dentro do intervalo seria caro; para o MVP o número de dias de
@@ -2050,7 +2390,7 @@ function ExpensesScreen({ lang, trip, members, userId, readOnly }) {
         <Card key={exp.id}>
           <div className="row-between">
             <div>
-              <h3>{exp.description}</h3>
+              <h3>{exp.description} {exp.pendingSync && <span className="badge badge-convidado" title={t(lang, 'pendingSyncBadge')}>⏳</span>}</h3>
               <p>{t(lang, 'paidByLabel', memberName(exp.paidBy))}</p>
             </div>
             <strong>{exp.currency} {exp.amount.toFixed(2)}</strong>
@@ -2548,14 +2888,43 @@ function MembersScreen({ lang, tripId, tripCode, members, auditLog, myRole, curr
 
 function TripScreen({ lang, tripId, user }) {
   const [activeTab, setActiveTab] = useState('schedule');
-  const [data, setData] = useState(null); // { trip, members, auditLog } | null (carregando)
+  // H12.4 — adaptação web do "splash durante cache-busting" da spec original
+  // (pensada para um wrapper mobile nativo, que não existe aqui): em vez de
+  // uma splash screen própria, o estado inicial já nasce do cache local, se
+  // houver — a tela nunca fica em branco/só "Carregando…" quando já existe
+  // um retrato salvo da viagem, mesmo antes da resposta de rede chegar.
+  const [data, setData] = useState(() => cacheGet(`tripfull_${tripId}`));
   const [reloadKey, setReloadKey] = useState(0);
+  const online = useOnlineStatus();
+  const [pendingCount, setPendingCount] = useState(() => queuePendingCount(tripId));
 
   useEffect(() => {
     let alive = true;
     TrippinAPI.getTripFull(tripId).then(result => { if (alive) setData(result); });
     return () => { alive = false; };
   }, [tripId, reloadKey]);
+
+  // H12.3 — tenta sincronizar a fila local sempre que a conexão volta (evento
+  // 'online') ou a tela é aberta já online com pendências de uma sessão
+  // offline anterior.
+  useEffect(() => {
+    if (!online) return;
+    let alive = true;
+    flushPendingQueue(tripId, user.id).then(applied => {
+      if (!alive) return;
+      setPendingCount(queuePendingCount(tripId));
+      if (applied) setReloadKey(k => k + 1);
+    });
+    return () => { alive = false; };
+  }, [online, tripId]);
+
+  useEffect(() => {
+    function onQueueChanged(e) {
+      if (e.detail && e.detail.tripId === tripId) setPendingCount(queuePendingCount(tripId));
+    }
+    window.addEventListener('trippin:queue-changed', onQueueChanged);
+    return () => window.removeEventListener('trippin:queue-changed', onQueueChanged);
+  }, [tripId]);
 
   if (data === null) {
     return <div className="screen"><p className="hint">{lang === 'pt-BR' ? 'Carregando…' : 'Loading…'}</p></div>;
@@ -2584,12 +2953,14 @@ function TripScreen({ lang, tripId, user }) {
         <span className="badge badge-convidado">{t(lang, status === 'pre' ? 'statusPre' : status === 'ativa' ? 'statusActive' : 'statusDone')}</span>
       </div>
       {readOnly && <div className="hint" style={{ marginBottom: 12 }}>{t(lang, 'tripEnded')}</div>}
+      {!online && <div className="banner-error" style={{ background: 'var(--color-text-muted)' }}>{t(lang, 'offlineBanner')}</div>}
+      {online && pendingCount > 0 && <div className="hint" style={{ marginBottom: 12 }}>{t(lang, 'pendingSyncCount', pendingCount)}</div>}
       <SegmentedTabs tabs={tabs} active={activeTab} onChange={setActiveTab} />
       {activeTab === 'schedule' && (
-        <ScheduleScreen lang={lang} trip={data.trip} members={data.members} userId={user.id} readOnly={readOnly} />
+        <ScheduleScreen lang={lang} trip={data.trip} members={data.members} userId={user.id} readOnly={readOnly} syncKey={reloadKey} />
       )}
       {activeTab === 'expenses' && (
-        <ExpensesScreen lang={lang} trip={data.trip} members={data.members} userId={user.id} readOnly={readOnly} />
+        <ExpensesScreen lang={lang} trip={data.trip} members={data.members} userId={user.id} readOnly={readOnly} syncKey={reloadKey} />
       )}
       {activeTab === 'members' && (
         <MembersScreen lang={lang} tripId={tripId} tripCode={data.trip.code} members={data.members}

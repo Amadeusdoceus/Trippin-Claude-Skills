@@ -20,7 +20,7 @@
 | **B — Esqueleto vertical (versão mínima)** | E5-min, E6-min, E7-min | Fluxo ponta-a-ponta usável o mais rápido possível: criar viagem → ver algo no painel → um evento → uma despesa | ✅ feito |
 | **C — Diferencial central** | E8 | Inteligência de Docs é o must-have que justifica o produto (`00-F` §4) — entra logo após o esqueleto mínimo existir, não no fim | ✅ feito (2026-08-30) |
 | **D — Completar módulos** | E6-completo, E7-completo, E9, E10, E11 | Semana/mês, reordenar, conflitos, métodos de divisão avançados, Mapa, Galeria, Sugestões | ✅ feito (2026-08-30; H10.1 com verificação manual pendente, ver E10) |
-| **E — Infraestrutura transversal** | E12, E13, E14, E15 | Offline, notificações/drawer, retenção/privacidade e log de erros só fazem sentido depois de existirem fluxos reais para sincronizar, notificar e logar | H15.2 feito, resto não iniciado |
+| **E — Infraestrutura transversal** | E12, E13, E14, E15 | Offline, notificações/drawer, retenção/privacidade e log de erros só fazem sentido depois de existirem fluxos reais para sincronizar, notificar e logar | E12 e H15.2 feitos; E13/E14/H15.1/H15.3 não iniciados |
 
 > **Nota adicionada em 2026-08-29 (`00-F` §17.2):** a parte de E15 mais urgente para crescer com
 > segurança — H15.2, captura estruturada de erros — foi adiantada e concluída fora de ordem, antes
@@ -33,6 +33,11 @@
 > **Nota adicionada em 2026-08-30 (mais tarde):** E8 foi concluída. Com isso, todo o MVP core
 > (Fases A-D) está feito; resta apenas a Fase E (infraestrutura transversal), hoje com só H15.2
 > feita.
+>
+> **Nota adicionada em 2026-08-30 (mais tarde ainda):** E12 (sincronização offline) foi concluída,
+> a pedido explícito de seguir a ordem do backlog dentro da Fase E. H12.3 (last-write-wins) tem uma
+> lacuna de verificação registrada: o cenário de conflito real entre dois usuários não foi testado
+> de ponta a ponta neste ciclo por limitação do ambiente de teste (ver H12.3), não do código.
 
 ---
 
@@ -213,12 +218,16 @@
 
 - **H12.1** Cache local (`localStorage`) de cronograma, despesas, docs confirmados e fotos da viagem ativa.
   - Critério de aceite: com o dispositivo em modo avião, abrir o app ainda mostra os dados da viagem ativa carregados anteriormente, em qualquer aba.
+  - **Status: feito em 2026-08-30, com uma ressalva arquitetural registrada.** Leitura com cache: toda consulta (cronograma do dia/semana/mês, despesas, documentos, fotos, dados da viagem) tenta a rede primeiro e só cai no cache salvo se a chamada falhar por conectividade — nunca esconde um erro de negócio (RLS, validação) atrás do cache. Documentos e fotos ficam com os **metadados** em cache (nome, data de upload, vínculo com evento); abrir o arquivo em si continua exigindo rede, porque o bucket é privado e só entrega uma signed URL sob demanda — limitação arquitetural do Storage, não um detalhe adiado.
 - **H12.2** Fila local de operações pendentes (criar/editar feito offline), via camada `TrippinAPI`.
   - Critério de aceite: item criado ou editado offline mostra indicador "pendente de sincronização" imediatamente, sem esperar reconexão.
+  - **Status: feito em 2026-08-30, com escopo reduzido registrado.** Cronograma (criar/editar/excluir evento) e Despesas (criar despesa, quitar/reabrir) entram na fila; upload de foto/documento fica **fora** da fila offline — é um binário indo para o Storage, que exige rede de qualquer forma, então enfileirar não faria sentido. Reordenar evento (H6.4, um recurso já adaptado do gesto nativo original) também fica fora: offline, é ignorado silenciosamente em vez de arriscar uma reconciliação de ordem complexa por um ganho pequeno. Editar/excluir um item ainda não sincronizado (criado durante a mesma sessão offline) mescla direto na operação de criação já enfileirada, em vez de gerar uma segunda operação — evita tentar "atualizar" algo que o servidor ainda não conhece.
 - **H12.3** Sincronização na reconexão com estratégia last-write-wins.
   - Critério de aceite: ao reconectar, itens pendentes sincronizam automaticamente; se houve edição concorrente, a versão mais recente prevalece e o histórico de auditoria (H4.5) registra ambas as tentativas.
+  - **Status: feito em 2026-08-30, com uma lacuna de verificação registrada.** Nova coluna `schedule_events.updated_at` (com trigger automático) permite comparar o timestamp local da edição offline contra a última alteração real no servidor: se o servidor tem uma edição mais recente, a ação offline é descartada e registrada no histórico de auditoria (mensagem explicando o descarte); senão, a edição offline é aplicada normalmente. **Verificado de ponta a ponta:** criar evento offline, reconectar e sincronizar automaticamente (banner some, fila esvazia, evento aparece no banco com o `updated_at` correto) — confirmado tanto na UI quanto direto no banco. **Não verificado:** o cenário de conflito real (dois usuários editando o mesmo evento, um deles offline) foi implementado e revisado no código, mas a tentativa de testá-lo com dois navegadores simultâneos falhou repetidamente neste ciclo por esgotamento de memória do ambiente de teste (0,18 GB livres de 7,69 GB, não um defeito do app) — registrado aqui como lacuna de verificação a fechar quando o ambiente permitir, não escondido como "feito e testado".
 - **H12.4** Splash/loading intencional no wrapper mobile durante o cache-busting inicial (`02-UXUI-spec.md` §6).
   - Critério de aceite: abrir o app mobile nunca mostra uma tela branca sem conteúdo, mesmo durante a checagem de versão nova.
+  - **Status: feito em 2026-08-30, com adaptação registrada.** O critério original pressupõe um wrapper mobile nativo fazendo cache-busting, que não existe aqui (decisão de tecnologia #1). Adaptação: a tela da viagem nasce direto do cache local (H12.1), se houver — nunca fica só "Carregando…" quando já existe um retrato salvo da viagem, mesmo antes da resposta de rede chegar. Sem splash screen dedicada; o mesmo mecanismo de cache que resolve H12.1 resolve esta história.
 
 ## E13 — Notificações e navegação transversal (drawer)
 
