@@ -4,27 +4,28 @@
 |---|---|
 | **Tipo** | Relatório de status gerencial — atualizado a cada ciclo, não é parte da cadeia numerada `00→07` |
 | **Base** | `00-visao-de-negocio-final.md`, `02-UXUI-spec.md`, `03-backlog.md` |
-| **Atualização atual** | 2026-08-30 (ciclo 11 — Fase E: E12, sincronização offline) |
-| **Atualização anterior** | 2026-08-30 (ciclo 10 — Fase C: E8, Docs com inteligência, o diferencial central do produto) |
+| **Atualização atual** | 2026-08-30 (ciclo 12 — Fase E: E13, notificações e drawer) |
+| **Atualização anterior** | 2026-08-30 (ciclo 11 — Fase E: E12, sincronização offline) |
 | **Como manter** | A cada novo ciclo: atualizar seções 1–4 com o estado atual e adicionar uma linha em "Histórico" (seção 6). Não reescrever o histórico de ciclos passados. |
 
 ---
 
 ## 1. Resumo executivo
 
-**E12 — Sincronização offline entregue neste ciclo**, primeira história da Fase E (infraestrutura
-transversal), seguindo a ordem do próprio backlog. Cronograma e Despesas agora funcionam com o
-dispositivo sem conexão: os dados já carregados continuam visíveis, criar/editar continua
-funcionando (com um indicador "pendente de sincronização"), e tudo sincroniza sozinho ao reconectar,
-com uma regra de "a edição mais recente vence" para o caso raro de dois integrantes editarem o
-mesmo evento com um deles offline. Com H15.2 (log de erros) já feito, a Fase E fica em 2 de 4
-frentes iniciadas (E13 notificações e E14 privacidade/retenção seguem não iniciadas). Estimativa
-segue em **~12 semanas até a V1**.
+**E13 — Notificações e drawer entregue neste ciclo.** O drawer em si (Notificações/Configurações/
+Privacidade/Sair, acessível de qualquer tela) já existia desde a fundação do app — o trabalho novo
+foi dar conteúdo real à tela de Notificações: convite recebido (interpretado como "alguém entrou na
+viagem", já que o fluxo real é por código, não convite nominal), despesa nova te afetando, e conflito
+de agenda detectado agora geram notificações reais, com badge de não lidas no drawer. Com isso, a
+Fase E chega a 3 de 4 frentes feitas (E12 offline, E13 notificações, H15.2 log de erros); só falta
+E14 (privacidade/retenção) e as duas frentes menores de E15 (H15.1, H15.3). Estimativa segue em
+**~12 semanas até a V1**.
 
-**Pendência que mais afeta o prazo real:** ainda não há equipe/cadência definida (ver seção 4). Duas
-verificações manuais/automatizadas continuam recomendadas, não bloqueantes: upload de fotos na
-Galeria em navegador real (ciclo 9) e o cenário de conflito de edição concorrente do E12 (ver
-seção 2 deste ciclo) — ambas por limitação do ambiente de teste, não por dúvida sobre o código.
+**Pendência que mais afeta o prazo real:** ainda não há equipe/cadência definida (ver seção 4). Três
+verificações continuam recomendadas, não bloqueantes, todas por limitação do ambiente de teste local
+(memória insuficiente para rodar navegadores automatizados), não por dúvida sobre o código: upload de
+fotos na Galeria (ciclo 9), conflito de edição concorrente do E12 (ciclo 11) e a renderização em
+navegador da tela de Notificações do E13 (ver seção 2 deste ciclo).
 
 ---
 
@@ -268,21 +269,53 @@ Fase E:
   publicado. Fica registrado como verificação pendente, não como "testado e aprovado".
 - **Limpeza:** contas/viagens de teste apagadas do banco real.
 
+Ciclo 12 — E13 (notificações e drawer) concluída:
+
+- **H13.1 (drawer) não precisou de trabalho novo:** já existia desde a fundação do app (Fase A) —
+  acessível de qualquer tela via o ícone ☰, com os 4 itens (Notificações, Configurações, Privacidade
+  e dados, Sair). Só a tela de Notificações era um placeholder vazio.
+- **H13.2 — três notificações reais, geradas só pelo banco (nunca pelo cliente):** nova tabela
+  `notifications` com RLS (cada um só lê/marca como lida as próprias) e nenhuma policy de insert
+  para o cliente — a única forma de existir uma notificação é uma das 3 triggers novas disparar.
+  - **"Convite recebido"** foi interpretado como **"um integrante novo entrou na viagem"**: notifica
+    quem já estava na viagem quando alguém entra pelo código. Registrado como interpretação porque o
+    produto não tem um "convite" nominal a uma pessoa específica — o convite real é o código de
+    12 dígitos compartilhado por fora do app.
+  - **Despesa nova impactando o usuário:** notifica cada participante de uma despesa, exceto quem
+    pagou — e de quebra fecha a pendência que H7.3 carregava desde o ciclo 8 ("notificação depende
+    de E13, que não existe").
+  - **Conflito de agenda:** notifica um integrante quando ele é adicionado a um evento que colide em
+    horário com outro evento da mesma viagem em que ele já participa — mesma matemática de
+    sobreposição do indicador visual do Cronograma (H6.5), agora também em SQL.
+  - Badge com a contagem de não lidas no botão de Notificações do drawer.
+- **Escopo deliberadamente fora desta entrega:** "notificação mesmo com o app em segundo plano"
+  exigiria push notification real (service worker + Web Push/VAPID) — infraestrutura fora da decisão
+  de arquitetura de arquivo único já registrada (`00-F` §10, decisão #1) e não construída aqui. A
+  notificação fica visível na tela do app quando ele está aberto, não chega em segundo plano.
+- **Verificado por dois caminhos diferentes:** a lógica de banco (as 3 triggers + RLS + formato dos
+  dados) foi testada de ponta a ponta com um script real usando o mesmo cliente Supabase do app —
+  13 verificações, todas corretas, incluindo que ninguém consegue ler notificação alheia nem forjar
+  uma própria. A renderização da tela em navegador **não pôde ser confirmada neste ciclo** — duas
+  tentativas de teste automatizado falharam por falta de memória no ambiente de teste local (mesma
+  limitação do ciclo 11), não por qualquer problema encontrado no código; o componente segue o mesmo
+  padrão (lista de cards) já usado e testado em navegador em outras telas do app.
+- **Limpeza:** contas/viagem de teste apagadas do banco real.
+
 ---
 
 ## 3. Próximos passos imediatos
 
-**Todo o MVP core (Fases A–D) está entregue; a Fase E está com 2 de 4 frentes feitas** (E12 offline
-e H15.2 log de erros). Restam E13 (notificações/drawer) e E14 (privacidade/retenção), além de H15.1
-(depende de E12, agora liberado) e H15.3 (Playwright/CI, frente separada). Recomendação: E14 é
-rápida e reforça a postura de proteção de dados já documentada em `00-F` §17; E13 depende de decidir
-como o app vai notificar em segundo plano (mobile), o que pode exigir mais definição de produto
-antes de começar a construir.
+**Todo o MVP core (Fases A–D) está entregue; a Fase E está com 3 de 4 frentes feitas** (E12 offline,
+E13 notificações, H15.2 log de erros). Resta só E14 (privacidade/retenção) e as duas frentes menores
+de E15 (H15.1, agora liberada pelo E12; H15.3, Playwright/CI). Recomendação: E14 é a peça que falta
+para fechar a Fase E inteira, e é rápida — reforça a postura de proteção de dados já documentada em
+`00-F` §17.
 
-**Verificações pendentes, não bloqueantes:**
+**Verificações pendentes, não bloqueantes (todas por limitação de memória do ambiente de teste
+local, não por dúvida sobre o código):**
 - Testar manualmente o upload de foto na Galeria num navegador real (herdado do ciclo 9).
-- Testar o cenário de conflito de edição concorrente do E12 (H12.3) quando o ambiente de teste local
-  tiver memória disponível para rodar dois navegadores automatizados ao mesmo tempo.
+- Testar o cenário de conflito de edição concorrente do E12 (H12.3) (herdado do ciclo 11).
+- Confirmar em navegador real a renderização da tela de Notificações do E13 (este ciclo).
 
 **Ainda em aberto, sem bloquear:**
 - Definir o modelo de negócio em si (não só o dono) — sem prazo declarado.
@@ -291,9 +324,10 @@ antes de começar a construir.
   vale uma história própria.
 - Sem fluxo de "esqueci minha senha" e sem teste automatizado de RLS (ambos em `00-F` §17.2).
 - H15.3 (Playwright/CI antes do push) — pedir explicitamente quando quiser priorizar essa frente.
-- Notificação ao integrante impactado por uma despesa (H7.3) depende de E13, que não existe.
 - OCR não processa PDF nesta versão de E8 (só imagens) — registrado como redução de escopo, não bug.
 - Reordenar evento (H6.4) não funciona offline — ignorado silenciosamente, registrado no backlog.
+- Notificações não chegam em segundo plano (sem push real) — registrado como redução de escopo do
+  E13, não bug.
 
 ---
 
@@ -311,7 +345,7 @@ antes de começar a construir.
 | 4–5 | B — Esqueleto vertical mínimo | E5, E6-mín, E7-mín | Fluxo ponta a ponta: criar viagem → ver painel → 1 evento → 1 despesa |
 | 6–7 | C — Diferencial central | E8 (Docs com inteligência) | Anexar um documento popula o cronograma, com confirmação humana — a promessa central da VN — **✅ feito** |
 | 8–10 | D — Completar módulos | E6-completo, E7-completo, E9, E10, E11 | Cronograma e Despesas completos; Mapa, Galeria e Sugestões no ar |
-| 11–12 | E — Infraestrutura transversal | E12, E13, E14, E15 | Offline, notificações, privacidade/retenção e observabilidade — critério de "visão atingida" da VN completo — **E12 ✅ feito** |
+| 11–12 | E — Infraestrutura transversal | E12, E13, E14, E15 | Offline, notificações, privacidade/retenção e observabilidade — critério de "visão atingida" da VN completo — **E12 e E13 ✅ feitos** |
 
 **Data-alvo estimada da V1:** ~2026-11-20 (12 semanas a partir de hoje, 2026-08-28) — **estimativa
 de planejamento**, não uma data comprometida, pelas razões da premissa acima.
@@ -347,3 +381,4 @@ ainda:
 | 2026-08-30 | Fase D completa: Cronograma (Semana/Mês/reordenar), Despesas (valor fixo/partes customizadas/quitação/extrato), Mapa (Leaflet+OSM+geocodificação real), Galeria (upload, verificação automatizada inconclusiva por bloqueio de bot do Cloudflare — confirmado via Node puro) e Sugestões, todas construídas do zero; bug real corrigido no cálculo de saldo (não excluía despesas quitadas) |
 | 2026-08-30 | E8 (Docs com inteligência) concluída: upload independente da extração, OCR client-side (Tesseract.js, só imagens — PDF cai no fallback) + parser próprio para data/horário/título, confirmação humana obrigatória com alerta de conflito de horário; verificado ponta-a-ponta (navegador + banco) com um documento de teste real; MVP core (Fases A–D) completo, resta só a Fase E |
 | 2026-08-30 | E12 (sincronização offline) concluída: cache local de leitura, fila de pendências para cronograma/despesas com indicador visual, sincronização automática ao reconectar com last-write-wins (novo `schedule_events.updated_at`); verificado ponta-a-ponta em teste real (criar offline → reconectar → sincroniza sozinho, confirmado no banco); cenário de conflito entre dois usuários implementado mas não verificado neste ciclo por limitação de memória do ambiente de teste local |
+| 2026-08-30 | E13 (notificações e drawer) concluída: drawer já existia desde a Fase A, tela de Notificações ganhou conteúdo real via 3 triggers no banco (integrante entrou, despesa impactando, conflito de agenda) com RLS e badge de não lidas; fecha também a pendência de notificação do H7.3; lógica de banco verificada com 13 checagens via script real (RLS e triggers corretos), renderização em navegador não confirmada por limitação de memória do ambiente de teste |

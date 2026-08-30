@@ -371,6 +371,11 @@ const I18N = {
     offlineBanner: 'Sem conexão — mostrando os últimos dados salvos.',
     pendingSyncCount: (n) => `${n} alteraç${n === 1 ? 'ão' : 'ões'} pendente${n === 1 ? '' : 's'} de sincronização`,
     pendingSyncBadge: 'Pendente de sincronização',
+    noNotificationsYet: 'Nenhuma notificação por enquanto.',
+    markAllRead: 'Marcar todas como lidas',
+    notifMemberJoined: (name, trip) => `${name} entrou na viagem "${trip}"`,
+    notifExpenseImpact: (desc, amount, currency, trip) => `Nova despesa "${desc}" (${currency} ${amount}) na viagem "${trip}" te afeta`,
+    notifScheduleConflict: (eventTitle, conflictTitle, trip) => `Conflito de horário na viagem "${trip}": "${eventTitle}" colide com "${conflictTitle}"`,
   },
   'en-US': {
     appName: 'Trippin',
@@ -503,6 +508,11 @@ const I18N = {
     offlineBanner: 'No connection — showing the last saved data.',
     pendingSyncCount: (n) => `${n} change${n === 1 ? '' : 's'} pending sync`,
     pendingSyncBadge: 'Pending sync',
+    noNotificationsYet: 'No notifications yet.',
+    markAllRead: 'Mark all as read',
+    notifMemberJoined: (name, trip) => `${name} joined the trip "${trip}"`,
+    notifExpenseImpact: (desc, amount, currency, trip) => `New expense "${desc}" (${currency} ${amount}) on trip "${trip}" affects you`,
+    notifScheduleConflict: (eventTitle, conflictTitle, trip) => `Schedule conflict on trip "${trip}": "${eventTitle}" clashes with "${conflictTitle}"`,
   },
 };
 // Demais 8 idiomas do roadmap ficam como stub — caem em EN-US como fallback (decisão #11).
@@ -677,6 +687,16 @@ function mapExpense(row) {
     id: row.id, tripId: row.trip_id, eventId: row.event_id, description: row.description,
     amount: Number(row.amount), currency: row.currency, splitMethod: row.split_method,
     paidBy: row.paid_by, createdAt: row.created_at,
+  };
+}
+
+// E13 / H13.2 — notificação nunca é inserida pelo cliente (RLS não dá policy
+// de insert para authenticated); as três triggers no banco fazem isso.
+function mapNotification(row) {
+  return {
+    id: row.id, tripId: row.trip_id, type: row.type, payload: row.payload || {},
+    readAt: row.read_at, createdAt: row.created_at,
+    tripName: row.trip ? row.trip.name : '',
   };
 }
 
@@ -1035,6 +1055,35 @@ const RawTrippinAPI = {
   // ---- H4.5 Histórico leve de auditoria ----
   async addAuditEntry(tripId, userId, message) {
     await supabaseClient.from('audit_log').insert({ trip_id: tripId, user_id: userId, message });
+  },
+
+  // ---- H13.2 Notificações — geradas só pelas triggers do banco (member
+  // joined, despesa impactando, conflito de agenda); o cliente só lê e marca
+  // como lida. Lista todas as notificações do usuário, não só de uma viagem
+  // (o drawer é global, não fica dentro do contexto de uma viagem aberta).
+  async listNotifications(userId) {
+    return cachedRead(`notifications_${userId}`, async () => {
+      const { data, error } = await supabaseClient.from('notifications')
+        .select('*, trip:trips(name)').eq('user_id', userId).order('created_at', { ascending: false }).limit(100);
+      if (error) throw error;
+      return (data || []).map(mapNotification);
+    });
+  },
+
+  async countUnreadNotifications(userId) {
+    const { count, error } = await supabaseClient.from('notifications')
+      .select('id', { count: 'exact', head: true }).eq('user_id', userId).is('read_at', null);
+    if (error) throw error;
+    return count || 0;
+  },
+
+  async markNotificationRead(notificationId) {
+    await supabaseClient.from('notifications').update({ read_at: new Date().toISOString() }).eq('id', notificationId);
+  },
+
+  async markAllNotificationsRead(userId) {
+    await supabaseClient.from('notifications').update({ read_at: new Date().toISOString() })
+      .eq('user_id', userId).is('read_at', null);
   },
 
   // ---- H5.2 Encerrar viagem manualmente (Admin) ----
@@ -1497,14 +1546,16 @@ function SegmentedTabs({ tabs, active, onChange }) {
   );
 }
 
-function Drawer({ open, onClose, lang, onLogout, onNavigate }) {
+function Drawer({ open, onClose, lang, onLogout, onNavigate, unreadCount }) {
   if (!open) return null;
   return (
     <React.Fragment>
       <div className="drawer-backdrop" onClick={onClose} />
       <div className="drawer">
         <h2>{t(lang, 'appName')}</h2>
-        <button onClick={() => onNavigate('notifications')}>🔔 {t(lang, 'notifications')}</button>
+        <button onClick={() => onNavigate('notifications')}>
+          🔔 {t(lang, 'notifications')} {unreadCount > 0 && <span className="badge badge-admin">{unreadCount}</span>}
+        </button>
         <button onClick={() => onNavigate('settings')}>⚙️ {t(lang, 'settings')}</button>
         <button onClick={() => onNavigate('privacy')}>🔒 {t(lang, 'privacyData')}</button>
         <button onClick={onLogout} style={{ color: 'var(--color-danger)' }}>🚪 {t(lang, 'logout')}</button>
@@ -3020,6 +3071,61 @@ function PlaceholderScreen({ lang, title, onBack }) {
   );
 }
 
+// H13.2 — mensagem renderizada no idioma atual a partir do payload salvo no
+// banco (não uma string pronta em pt-BR, ao contrário do audit_log — aqui o
+// usuário pode estar em qualquer um dos idiomas suportados).
+function notificationMessage(lang, n) {
+  const p = n.payload || {};
+  if (n.type === 'member_joined') return t(lang, 'notifMemberJoined', p.memberName, n.tripName);
+  if (n.type === 'expense_impact') return t(lang, 'notifExpenseImpact', p.description, Number(p.amount).toFixed(2), p.currency, n.tripName);
+  if (n.type === 'schedule_conflict') return t(lang, 'notifScheduleConflict', p.eventTitle, p.conflictTitle, n.tripName);
+  return '';
+}
+
+function NotificationsScreen({ lang, user, onChanged }) {
+  const [notifications, setNotifications] = useState(null);
+  const [reloadKey, setReloadKey] = useState(0);
+
+  useEffect(() => {
+    let alive = true;
+    TrippinAPI.listNotifications(user.id).then(list => { if (alive) setNotifications(list); });
+    return () => { alive = false; };
+  }, [user.id, reloadKey]);
+
+  async function markRead(n) {
+    if (n.readAt) return;
+    await TrippinAPI.markNotificationRead(n.id);
+    setReloadKey(k => k + 1);
+    onChanged();
+  }
+
+  async function markAllRead() {
+    await TrippinAPI.markAllNotificationsRead(user.id);
+    setReloadKey(k => k + 1);
+    onChanged();
+  }
+
+  return (
+    <div className="screen">
+      {notifications && notifications.some(n => !n.readAt) && (
+        <button className="btn btn-secondary" style={{ marginBottom: 12 }} onClick={markAllRead}>{t(lang, 'markAllRead')}</button>
+      )}
+      {notifications === null ? (
+        <p className="hint">{lang === 'pt-BR' ? 'Carregando…' : 'Loading…'}</p>
+      ) : notifications.length === 0 ? (
+        <EmptyState title={t(lang, 'noNotificationsYet')} />
+      ) : notifications.map(n => (
+        <Card key={n.id}>
+          <div onClick={() => markRead(n)} style={{ cursor: n.readAt ? 'default' : 'pointer', opacity: n.readAt ? 0.6 : 1 }}>
+            <p>{!n.readAt && <strong>● </strong>}{notificationMessage(lang, n)}</p>
+            <p className="hint">{new Date(n.createdAt).toLocaleString(lang)}</p>
+          </div>
+        </Card>
+      ))}
+    </div>
+  );
+}
+
 /* =========================================================================
    App — orquestração de navegação (sem router: estado local é suficiente
    para o número de telas da Fase A)
@@ -3032,6 +3138,7 @@ function App() {
   const [screen, setScreen] = useState('language');
   const [tripId, setTripId] = useState(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0);
 
   // Sessão do Supabase é restaurada automaticamente do localStorage pelo
   // próprio cliente (persistSession, padrão do supabase-js) — aqui só
@@ -3049,6 +3156,13 @@ function App() {
     });
     return () => { alive = false; };
   }, []);
+
+  // H13.2 — contagem de não lidas para o badge do sino no drawer; refeita ao
+  // logar e sempre que a tela de Notificações reporta uma mudança.
+  const refreshUnreadCount = React.useCallback(() => {
+    if (user) TrippinAPI.countUnreadNotifications(user.id).then(setUnreadCount);
+  }, [user && user.id]);
+  useEffect(() => { refreshUnreadCount(); }, [user && user.id]);
 
   function handleChooseLanguage(l) { setLang(l); setScreen('auth'); }
   function handleAuthed(profile) {
@@ -3117,12 +3231,16 @@ function App() {
       {screen === 'profile' && (
         <ProfileScreen lang={lang} user={user} onUpdate={setUser} onChangeLanguage={handleChangeLanguage} />
       )}
-      {['notifications', 'settings', 'privacy'].includes(screen) && (
+      {screen === 'notifications' && (
+        <NotificationsScreen lang={lang} user={user} onChanged={refreshUnreadCount} />
+      )}
+      {['settings', 'privacy'].includes(screen) && (
         <PlaceholderScreen lang={lang} title={titles[screen]} />
       )}
 
       <Drawer open={drawerOpen} onClose={() => setDrawerOpen(false)} lang={lang} onLogout={handleLogout}
-        onNavigate={(dest) => { setDrawerOpen(false); setScreen(dest); }} />
+        unreadCount={unreadCount}
+        onNavigate={(dest) => { setDrawerOpen(false); setScreen(dest); if (dest === 'notifications') refreshUnreadCount(); }} />
 
       <TabBar active={tabScreen} lang={lang} onChange={(key) => setScreen(key)} />
     </div>

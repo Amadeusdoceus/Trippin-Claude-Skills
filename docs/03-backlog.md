@@ -20,7 +20,7 @@
 | **B — Esqueleto vertical (versão mínima)** | E5-min, E6-min, E7-min | Fluxo ponta-a-ponta usável o mais rápido possível: criar viagem → ver algo no painel → um evento → uma despesa | ✅ feito |
 | **C — Diferencial central** | E8 | Inteligência de Docs é o must-have que justifica o produto (`00-F` §4) — entra logo após o esqueleto mínimo existir, não no fim | ✅ feito (2026-08-30) |
 | **D — Completar módulos** | E6-completo, E7-completo, E9, E10, E11 | Semana/mês, reordenar, conflitos, métodos de divisão avançados, Mapa, Galeria, Sugestões | ✅ feito (2026-08-30; H10.1 com verificação manual pendente, ver E10) |
-| **E — Infraestrutura transversal** | E12, E13, E14, E15 | Offline, notificações/drawer, retenção/privacidade e log de erros só fazem sentido depois de existirem fluxos reais para sincronizar, notificar e logar | E12 e H15.2 feitos; E13/E14/H15.1/H15.3 não iniciados |
+| **E — Infraestrutura transversal** | E12, E13, E14, E15 | Offline, notificações/drawer, retenção/privacidade e log de erros só fazem sentido depois de existirem fluxos reais para sincronizar, notificar e logar | E12, E13 e H15.2 feitos; E14/H15.1/H15.3 não iniciados |
 
 > **Nota adicionada em 2026-08-29 (`00-F` §17.2):** a parte de E15 mais urgente para crescer com
 > segurança — H15.2, captura estruturada de erros — foi adiantada e concluída fora de ordem, antes
@@ -38,6 +38,11 @@
 > a pedido explícito de seguir a ordem do backlog dentro da Fase E. H12.3 (last-write-wins) tem uma
 > lacuna de verificação registrada: o cenário de conflito real entre dois usuários não foi testado
 > de ponta a ponta neste ciclo por limitação do ambiente de teste (ver H12.3), não do código.
+>
+> **Nota adicionada em 2026-08-30 (mais tarde ainda):** E13 (notificações/drawer) foi concluída, a
+> pedido explícito. H13.1 (o drawer em si) já estava pronto desde a Fase A — só H13.2 (notificações
+> reais) era trabalho novo. Mesma limitação de ambiente de teste do H12.3 impediu confirmar a
+> renderização em navegador (a lógica de banco foi verificada por outro caminho, ver H13.2).
 
 ---
 
@@ -147,7 +152,7 @@
   - **Status: feito em 2026-08-30.**
 - **H7.3 (mínimo)** Saldo por participante ("você deve" / "te devem"), **agrupado por moeda**, e notificação ao integrante impactado por uma despesa nova.
   - Critério de aceite: saldo recalcula automaticamente a cada despesa criada, editada ou excluída, com um saldo independente por moeda (ex.: "você deve R$ 50 e US$ 20", sem somar as duas); integrante impactado recebe notificação (E14) ao ser adicionado a uma despesa.
-  - **Status: parcial.** Saldo por moeda calculado e exibido (verificado em teste real). A notificação em si depende de E13 (Notificações), que não existe — a parte de notificar continua pendente, registrada aqui e não escondida.
+  - **Status: feito em 2026-08-30.** Saldo por moeda calculado e exibido (verificado em teste real). A notificação ao integrante impactado, antes pendente de E13, agora existe — a mesma trigger `notify_expense_impact` de H13.2 dispara ao adicionar qualquer participante (exceto quem pagou) a uma despesa nova, verificada no mesmo teste de H13.2.
 - **H7.4 (mínimo)** Selecionar moeda por despesa (multi-moeda desde o MVP, confirmado com o stakeholder em 2026-08-28).
   - Critério de aceite: toda despesa tem um campo de moeda obrigatório; **não há conversão automática entre moedas** — despesas em moedas diferentes na mesma viagem nunca são somadas num único saldo.
   - **Status: feito em 2026-08-30.** Seletor BRL/USD/EUR (lista curada; sem campo livre por ora).
@@ -235,8 +240,10 @@
 
 - **H13.1** Drawer com Notificações, Configurações da conta, Privacidade e dados, Sair.
   - Critério de aceite: drawer é acessível de qualquer tela do app via ícone hambúrguer, sem sair do contexto da viagem ativa.
+  - **Status: já estava feito desde a Fase A** (fundação de design system, E1) — o drawer com os 4 itens já existia e já era acessível de qualquer tela via o ícone ☰ na barra superior, presente em todas as telas do app. Nenhum trabalho novo necessário nesta história; "Configurações" e "Privacidade e dados" seguem como telas de placeholder (Configurações não tem história própria no backlog; Privacidade e dados é H14.1, ainda não construída).
 - **H13.2** Notificações para: convite recebido, despesa nova impactando o usuário, conflito de agenda detectado.
   - Critério de aceite: cada um dos três eventos gera uma notificação visível na tela de Notificações, mesmo se o app estiver em segundo plano (mobile).
+  - **Status: feito em 2026-08-30, com duas ressalvas registradas.** Nova tabela `notifications` (RLS: cada usuário só lê e marca como lida as próprias; inserção só acontece via trigger no banco, nunca pelo cliente — testado que um usuário não consegue forjar uma notificação própria). Três triggers cobrem os três eventos: (1) **"convite recebido" foi interpretado como "um integrante novo entrou na viagem"** — o fluxo real do produto é entrar por código, não um convite nominal a uma pessoa específica, então não existe um "convite" individual para notificar; a interpretação adotada notifica quem já estava na viagem quando alguém novo entra, que é o evento mais próximo do que a spec original descrevia; (2) despesa nova notifica cada participante da despesa, exceto quem pagou; (3) conflito de agenda notifica um integrante quando ele é adicionado a um evento que colide em horário com outro evento da mesma viagem em que ele já participa (mesma lógica de sobreposição do H6.5, em SQL). Badge de não lidas no botão do drawer. **Ressalva 1 (escopo):** "mesmo se o app estiver em segundo plano" exigiria push notification real (service worker + Web Push/VAPID) — infraestrutura não coberta pela decisão de tecnologia #1 (app web de arquivo único) e fora do escopo desta entrega; a notificação fica visível na tela de Notificações quando o app está aberto, não é entregue em segundo plano. **Ressalva 2 (verificação):** a lógica de backend (as 3 triggers, RLS, payloads) foi verificada de ponta a ponta com um teste real via `@supabase/supabase-js` (13 verificações, todas corretas, incluindo que o RLS bloqueia leitura cruzada e inserção forjada); a renderização da tela no navegador não pôde ser confirmada neste ciclo — duas tentativas de teste automatizado falharam por esgotamento de memória do ambiente local (mesma limitação já registrada em H12.3), não por um problema encontrado no código. O componente segue os mesmos padrões já usados (e já testados em navegador) em outras telas de lista do app.
 
 ## E14 — Retenção e privacidade de dados sensíveis
 
