@@ -46,7 +46,7 @@
     --tracking-wide: 0.02em;
   }
   @media (prefers-color-scheme: dark) {
-    :root {
+    :root:not([data-theme="light"]) {
       --color-primary: #F0794C;
       --color-primary-contrast: #1A1512;
       --color-secondary: #4FBDAF;
@@ -58,6 +58,21 @@
       --color-danger: #E2857D;
       --color-conflict: #F0B429;
     }
+  }
+  /* Backlog v2 / H20.1 — escolha manual de tema (Configurações) sobrepõe a
+     preferência do sistema nos dois sentidos; sem escolha manual, o app
+     segue 100% a media query acima, como sempre foi. */
+  :root[data-theme="dark"] {
+    --color-primary: #F0794C;
+    --color-primary-contrast: #1A1512;
+    --color-secondary: #4FBDAF;
+    --color-surface: #171A24;
+    --color-surface-raised: #20242F;
+    --color-border: #2E3342;
+    --color-text: #F3EFEA;
+    --color-text-muted: #A8A296;
+    --color-danger: #E2857D;
+    --color-conflict: #F0B429;
   }
 
   * { box-sizing: border-box; }
@@ -242,6 +257,7 @@ const { useState, useEffect, useMemo, useCallback, useRef } = React;
 const I18N = {
   'pt-BR': {
     appName: 'Trippin',
+    appTagline: 'Tudo da sua viagem, num lugar só.',
     onboardingChooseLanguage: 'Escolha seu idioma',
     continue: 'Continuar',
     onboardingProfileTitle: 'Crie seu perfil',
@@ -280,7 +296,6 @@ const I18N = {
     gallery: 'Galeria',
     suggestions: 'Sugestões',
     members: 'Integrantes',
-    comingSoon: 'Esta área chega em uma fase seguinte do backlog.',
     inviteMembers: 'Convidar integrantes',
     inviteByEmail: 'Convidar por e-mail',
     inviteLinkHint: 'Ou compartilhe este código com quem você quer convidar:',
@@ -364,10 +379,64 @@ const I18N = {
     confirmExtraction: 'Confirmar dados do documento',
     extractionEmptyHint: 'Não conseguimos ler este documento automaticamente — preencha os campos abaixo.',
     linkedToEvent: 'Vinculado a um evento',
+    linkedToEvents: (n) => `Vinculado a ${n} eventos`,
     discardDocument: 'Descartar sem criar evento',
     createEventFromDoc: 'Criar evento com estes dados',
     docConflictWarning: 'O horário encontrado conflita com um evento existente nesse dia.',
     viewDocument: 'Ver documento',
+    thisIsLodging: 'Isso é uma reserva de hospedagem (hotel/Airbnb/booking)',
+    checkInDate: 'Check-in',
+    checkOutDate: 'Check-out',
+    confirmationCode: 'Código de reserva',
+    saveLodging: 'Salvar hospedagem',
+    lodgingStayingHere: 'Você está hospedado aqui',
+    lodgingCheckInToday: 'Check-in hoje',
+    lodgingCheckOutToday: 'Check-out hoje',
+    modeEvent: 'Evento único',
+    modeLodging: 'Hospedagem',
+    modeTicket: 'Passagem',
+    legLabel: (n) => `Trecho ${n}`,
+    legOrigin: 'Origem',
+    legDestination: 'Destino',
+    departureLabel: 'Embarque',
+    arrivalLabel: 'Desembarque',
+    removeLeg: 'Remover trecho',
+    addLeg: 'Adicionar trecho',
+    noLegsDetected: 'Nenhum trecho detectado automaticamente — adicione manualmente.',
+    flightDepartureTitle: 'Embarque',
+    flightArrivalTitle: 'Desembarque',
+    saveTicket: 'Criar eventos da passagem',
+    youAreIn: (city) => `Você está em ${city}`,
+    noLocationYet: 'Anexe uma reserva de hospedagem ou passagem para ver onde você está a cada dia.',
+    youAreHereLabel: 'Você está aqui',
+    mapLegendPast: 'Visitado',
+    mapLegendToday: 'Hoje',
+    mapLegendFuture: 'Programado',
+    takePhoto: 'Tirar foto',
+    attachReceipt: 'Anexar recibo (preenche automaticamente)',
+    checkInHelperTitle: 'Check-in do voo',
+    checkInOpensAt: (dt) => `Check-in abre por volta de ${dt}`,
+    searchCheckIn: 'Buscar check-in online',
+    themeLabel: 'Tema',
+    themeSystem: 'Sistema',
+    themeLight: 'Claro',
+    themeDark: 'Escuro',
+    notificationsEnabledLabel: 'Notificações ativadas',
+    notificationsMutedHint: 'Com notificações desativadas, elas continuam sendo geradas — só o alerta e o contador somem até você reativar.',
+    changePasswordTitle: 'Alterar senha',
+    newPassword: 'Nova senha',
+    confirmNewPassword: 'Confirmar nova senha',
+    passwordTooShort: 'A senha precisa ter pelo menos 6 caracteres.',
+    passwordMismatch: 'As senhas não coincidem.',
+    passwordChanged: 'Senha alterada com sucesso.',
+    passwordChangeFailed: 'Não foi possível alterar a senha. Tente novamente.',
+    searchLodgingTitle: 'Buscar hospedagem',
+    searchLodgingAction: 'Buscar hospedagem',
+    searchingLodging: 'Buscando…',
+    lodgingSearchNoPriceNote: 'Busca com dados livres do OpenStreetMap — sem preço ao vivo nesta versão.',
+    noLodgingFound: 'Nenhuma hospedagem encontrada perto desse destino.',
+    confirmLodgingFromSearch: 'Confirmar esta hospedagem',
+    unnamedLodging: 'Hospedagem sem nome',
     offlineBanner: 'Sem conexão — mostrando os últimos dados salvos.',
     pendingSyncCount: (n) => `${n} alteraç${n === 1 ? 'ão' : 'ões'} pendente${n === 1 ? '' : 's'} de sincronização`,
     pendingSyncBadge: 'Pendente de sincronização',
@@ -395,6 +464,7 @@ const I18N = {
   },
   'en-US': {
     appName: 'Trippin',
+    appTagline: 'Everything about your trip, in one place.',
     onboardingChooseLanguage: 'Choose your language',
     continue: 'Continue',
     onboardingProfileTitle: 'Create your profile',
@@ -433,7 +503,6 @@ const I18N = {
     gallery: 'Gallery',
     suggestions: 'Suggestions',
     members: 'Members',
-    comingSoon: 'This area ships in a later backlog phase.',
     inviteMembers: 'Invite members',
     inviteByEmail: 'Invite by email',
     inviteLinkHint: 'Or share this code with whoever you want to invite:',
@@ -517,10 +586,64 @@ const I18N = {
     confirmExtraction: 'Confirm document details',
     extractionEmptyHint: "We couldn't read this document automatically — fill in the fields below.",
     linkedToEvent: 'Linked to an event',
+    linkedToEvents: (n) => `Linked to ${n} events`,
     discardDocument: 'Discard without creating an event',
     createEventFromDoc: 'Create event with this data',
     docConflictWarning: 'The time found conflicts with an existing event that day.',
     viewDocument: 'View document',
+    thisIsLodging: 'This is a lodging booking (hotel/Airbnb/booking)',
+    checkInDate: 'Check-in',
+    checkOutDate: 'Check-out',
+    confirmationCode: 'Booking code',
+    saveLodging: 'Save lodging',
+    lodgingStayingHere: "You're staying here",
+    lodgingCheckInToday: 'Check-in today',
+    lodgingCheckOutToday: 'Check-out today',
+    modeEvent: 'Single event',
+    modeLodging: 'Lodging',
+    modeTicket: 'Flight ticket',
+    legLabel: (n) => `Leg ${n}`,
+    legOrigin: 'Origin',
+    legDestination: 'Destination',
+    departureLabel: 'Departure',
+    arrivalLabel: 'Arrival',
+    removeLeg: 'Remove leg',
+    addLeg: 'Add leg',
+    noLegsDetected: 'No legs detected automatically — add one manually.',
+    flightDepartureTitle: 'Departure',
+    flightArrivalTitle: 'Arrival',
+    saveTicket: 'Create events from ticket',
+    youAreIn: (city) => `You're in ${city}`,
+    noLocationYet: 'Attach a lodging or flight confirmation to see where you are each day.',
+    youAreHereLabel: "You're here",
+    mapLegendPast: 'Visited',
+    mapLegendToday: 'Today',
+    mapLegendFuture: 'Planned',
+    takePhoto: 'Take photo',
+    attachReceipt: 'Attach receipt (auto-fills the form)',
+    checkInHelperTitle: 'Flight check-in',
+    checkInOpensAt: (dt) => `Check-in opens around ${dt}`,
+    searchCheckIn: 'Search online check-in',
+    themeLabel: 'Theme',
+    themeSystem: 'System',
+    themeLight: 'Light',
+    themeDark: 'Dark',
+    notificationsEnabledLabel: 'Notifications enabled',
+    notificationsMutedHint: "With notifications off, they're still generated — only the alert and counter disappear until you turn them back on.",
+    changePasswordTitle: 'Change password',
+    newPassword: 'New password',
+    confirmNewPassword: 'Confirm new password',
+    passwordTooShort: 'Password must be at least 6 characters.',
+    passwordMismatch: "Passwords don't match.",
+    passwordChanged: 'Password changed successfully.',
+    passwordChangeFailed: 'Could not change the password. Please try again.',
+    searchLodgingTitle: 'Search lodging',
+    searchLodgingAction: 'Search lodging',
+    searchingLodging: 'Searching…',
+    lodgingSearchNoPriceNote: 'Search uses free OpenStreetMap data — no live pricing in this version.',
+    noLodgingFound: 'No lodging found near that destination.',
+    confirmLodgingFromSearch: 'Confirm this lodging',
+    unnamedLodging: 'Unnamed lodging',
     offlineBanner: 'No connection — showing the last saved data.',
     pendingSyncCount: (n) => `${n} change${n === 1 ? '' : 's'} pending sync`,
     pendingSyncBadge: 'Pending sync',
@@ -619,6 +742,18 @@ function todayIsoWithinRange(trip) {
   if (today > trip.endDate) return trip.endDate;
   return today;
 }
+
+// Backlog v2 / H17.2-H17.3 — âncora mais recente cuja data seja <= ao dia
+// visualizado (anchors já vem ordenado por data, H17.1); sem nenhuma âncora
+// anterior, retorna null — estado vazio claro (H17.3), nunca um local errado.
+function locationForDay(anchors, dayIso) {
+  let current = null;
+  for (const anchor of anchors) {
+    if (anchor.date <= dayIso) current = anchor;
+    else break;
+  }
+  return current;
+}
 function mapEvent(row) {
   if (!row) return null;
   return {
@@ -654,6 +789,35 @@ async function geocodePlace(query) {
     return null;
   }
 }
+
+// Backlog v2 / H21.1 — busca de hospedagem sem preço ao vivo (mesma
+// limitação aceita pelo protótipo de referência): geocodifica o destino
+// (Nominatim, já usado em H9.1/H9.2) e lista lugares com tag `tourism` de
+// hospedagem num raio de 3km via Overpass (dados livres do OSM, sem chave).
+async function searchLodgingNearby(destinationQuery, lang) {
+  const center = await geocodePlace(destinationQuery);
+  if (!center) return [];
+  const query = `[out:json][timeout:15];(node["tourism"~"hotel|hostel|guest_house|apartment"](around:3000,${center.lat},${center.lon});way["tourism"~"hotel|hostel|guest_house|apartment"](around:3000,${center.lat},${center.lon}););out center 12;`;
+  try {
+    const res = await fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`);
+    const data = await res.json();
+    return (data.elements || []).map(el => {
+      const lat = el.lat != null ? el.lat : (el.center && el.center.lat);
+      const lon = el.lon != null ? el.lon : (el.center && el.center.lon);
+      if (lat == null || lon == null) return null;
+      const tags = el.tags || {};
+      const addressParts = [tags['addr:street'], tags['addr:housenumber'], tags['addr:city']].filter(Boolean);
+      return {
+        name: tags.name || t(lang, 'unnamedLodging'),
+        lat, lon,
+        address: addressParts.length ? addressParts.join(', ') : null,
+      };
+    }).filter(Boolean).slice(0, 12);
+  } catch (error) {
+    logClientError(error, { source: 'searchLodgingNearby', query: destinationQuery });
+    return [];
+  }
+}
 // E8 / H8.2 — parser estruturado por padrões conhecidos, sem OCR/LLM em
 // servidor (decisão de tecnologia #7, 00-F §10). Cobre os formatos de data
 // mais comuns em comprovantes/passagens (numérico e por extenso, pt-BR/en-US)
@@ -663,7 +827,7 @@ const MONTHS_PT = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', '
 const MONTHS_EN = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december'];
 
 function parseDocumentText(text) {
-  const result = { date: null, time: null, title: '' };
+  const result = { date: null, time: null, title: '', location: null };
   if (!text) return result;
 
   const numericDate = text.match(/\b(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})\b/);
@@ -693,7 +857,106 @@ function parseDocumentText(text) {
   const lines = text.split('\n').map(l => l.trim()).filter(l => l.length >= 4 && !/^\d+$/.test(l));
   if (lines.length > 0) result.title = lines[0].slice(0, 80);
 
+  // H16.1 — local: rótulo explícito seguido de dois-pontos (mesmo nível de
+  // confiança que os outros campos regex-based, sem tentar "entender" texto
+  // livre sem rótulo — isso exigiria OCR/LLM mais forte, fora de escopo aqui).
+  const locationMatch = text.match(/\b(?:local|endere[cç]o|localiza[cç][aã]o|address|location|hotel|cidade|city)\s*[:\-]\s*(.+)/i);
+  if (locationMatch) {
+    const raw = locationMatch[1].split('\n')[0].trim();
+    if (raw.length >= 2) result.location = raw.slice(0, 120);
+  }
+
   return result;
+}
+
+// Backlog v2 / H16.3 — heurística de palavras-chave decide se o documento é
+// candidato a hospedagem (hotel/Airbnb/booking), não uma classificação por
+// LLM. Duas datas distintas no texto viram check-in/check-out (a primeira e
+// a última, ordenadas); nem sempre bate exatamente, por isso a tela de
+// confirmação (DocConfirmSheet) sempre deixa o usuário corrigir ou desmarcar
+// "isso é uma hospedagem" antes de gravar (mesmo princípio de H8.3).
+const LODGING_KEYWORDS = /\b(hospedagem|hotel|airbnb|booking|estadia|alojamento|check-?in|check-?out|reserva de quarto)\b/i;
+
+function parseLodgingCandidate(text) {
+  if (!text || !LODGING_KEYWORDS.test(text)) return null;
+
+  const dates = [];
+  const dateRe = /\b(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})\b/g;
+  let m;
+  while ((m = dateRe.exec(text)) !== null) {
+    let [, d, mo, y] = m;
+    if (y.length === 2) y = '20' + y;
+    if (Number(mo) <= 12 && Number(d) <= 31) dates.push(`${y}-${mo.padStart(2, '0')}-${d.padStart(2, '0')}`);
+  }
+  const uniqueSorted = [...new Set(dates)].sort();
+
+  const addressMatch = text.match(/\b(?:endere[cç]o|address|local|localiza[cç][aã]o)\s*[:\-]\s*(.+)/i);
+  const codeMatch = text.match(/\b(?:c[oó]digo(?:\s*de\s*reserva)?|confirmation(?:\s*code)?|reserva\s*n[ºo°]?)\s*[:\-]?\s*([A-Za-z0-9-]{4,20})\b/i);
+
+  return {
+    checkIn: uniqueSorted[0] || null,
+    checkOut: uniqueSorted.length > 1 ? uniqueSorted[uniqueSorted.length - 1] : null,
+    address: addressMatch ? addressMatch[1].split('\n')[0].trim().slice(0, 160) : null,
+    confirmationCode: codeMatch ? codeMatch[1] : null,
+  };
+}
+
+// Backlog v2 / H16.2 — passagem aérea com uma ou mais pernas. Sem OCR/LLM
+// forte, a extração depende de rótulos explícitos (mesmo nível de confiança
+// dos outros parsers desta função): "De:"/"Para:" para as cidades de cada
+// perna, "Embarque:"/"Desembarque:" para data+horário. Um documento com N
+// pernas tem N ocorrências de cada rótulo, na mesma ordem — pareadas por
+// posição, não por proximidade textual (mais simples e previsível). Se
+// algum rótulo faltar em qualquer perna, o menor comprimento entre as
+// quatro listas já corta a perna incompleta fora do resultado.
+const TICKET_KEYWORDS = /\b(passagem|voo|flight|embarque|desembarque|bilhete|e-?ticket|boarding)\b/i;
+
+function extractLabeledLines(text, labelSrc) {
+  const re = new RegExp(`\\b(?:${labelSrc})\\s*[:\\-]\\s*(.+)`, 'gi');
+  const out = [];
+  let m;
+  while ((m = re.exec(text)) !== null) {
+    const value = m[1].split('\n')[0].trim();
+    if (value.length >= 2) out.push(value.slice(0, 80));
+  }
+  return out;
+}
+
+function extractLabeledDateTimes(text, labelSrc) {
+  const re = new RegExp(
+    `\\b(?:${labelSrc})\\s*[:\\-]?\\s*(\\d{1,2})[\\/\\-.](\\d{1,2})[\\/\\-.](\\d{2,4})[^\\d]{0,15}(?:([01]?\\d|2[0-3]):([0-5]\\d))?`,
+    'gi'
+  );
+  const out = [];
+  let m;
+  while ((m = re.exec(text)) !== null) {
+    let [, d, mo, y, h, mi] = m;
+    if (y.length === 2) y = '20' + y;
+    if (Number(mo) > 12 || Number(d) > 31) continue;
+    out.push({
+      date: `${y}-${mo.padStart(2, '0')}-${d.padStart(2, '0')}`,
+      time: h ? `${h.padStart(2, '0')}:${mi}` : null,
+    });
+  }
+  return out;
+}
+
+function parseTicketCandidate(text) {
+  if (!text || !TICKET_KEYWORDS.test(text)) return null;
+
+  const origins = extractLabeledLines(text, 'de|origem|from|partida');
+  const destinations = extractLabeledLines(text, 'para|destino|to');
+  const departures = extractLabeledDateTimes(text, 'embarque|departure|dep\\.?');
+  const arrivals = extractLabeledDateTimes(text, 'desembarque|arrival|chegada');
+
+  const legCount = Math.min(origins.length, destinations.length, departures.length, arrivals.length);
+  if (legCount === 0) return null;
+
+  return Array.from({ length: legCount }, (_, i) => ({
+    origin: origins[i], destination: destinations[i],
+    departureDate: departures[i].date, departureTime: departures[i].time || '',
+    arrivalDate: arrivals[i].date, arrivalTime: arrivals[i].time || '',
+  }));
 }
 
 // OCR no cliente (Tesseract.js). PDFs e outros formatos não-imagem caem
@@ -703,13 +966,62 @@ function parseDocumentText(text) {
 async function extractFromDocument(file) {
   try {
     if (!file.type || !file.type.startsWith('image/')) {
-      return { date: null, time: null, title: '' };
+      return { date: null, time: null, title: '', location: null, lodging: null, ticket: null };
     }
     const { data } = await Tesseract.recognize(file, 'por+eng');
-    return parseDocumentText(data.text);
+    return {
+      ...parseDocumentText(data.text),
+      lodging: parseLodgingCandidate(data.text),
+      ticket: parseTicketCandidate(data.text),
+    };
   } catch (error) {
     logClientError(error, { source: 'extractFromDocument' });
-    return { date: null, time: null, title: '' };
+    return { date: null, time: null, title: '', location: null, lodging: null, ticket: null };
+  }
+}
+
+// Backlog v2 / H19.1 — recibo de despesa reaproveita o mesmo pipeline de OCR
+// (Tesseract.js, sem LLM) + heurística de rótulo já usada em H8.2/H16.x;
+// mesmo princípio de confirmação humana: só pré-preenche description/amount
+// no formulário de despesa, usuário confirma ou corrige antes de salvar.
+function parseMoneyToken(raw) {
+  if (!raw) return null;
+  let s = raw.trim();
+  const hasComma = s.includes(','), hasDot = s.includes('.');
+  if (hasComma && hasDot) {
+    s = s.lastIndexOf(',') > s.lastIndexOf('.') ? s.replace(/\./g, '').replace(',', '.') : s.replace(/,/g, '');
+  } else if (hasComma) {
+    s = s.replace(',', '.');
+  }
+  const n = Number(s);
+  return Number.isFinite(n) && n > 0 ? Math.round(n * 100) / 100 : null;
+}
+
+function parseExpenseCandidate(text) {
+  const base = parseDocumentText(text);
+  const amountMatch = text.match(/\b(?:total|valor|amount|montante)\s*[:\-]?\s*(?:r\$|\$|€)?\s*([\d.,]+)/i);
+  return { description: base.title, amount: amountMatch ? parseMoneyToken(amountMatch[1]) : null };
+}
+
+// Backlog v2 / H19.2 — detecta um evento de embarque criado pelo modo
+// Passagem (H16.2) pelo prefixo de título fixo em pt-BR ou en-US (os únicos
+// dois idiomas com strings reais — os outros 8 caem em en-US, H1.3); o
+// título fica gravado no idioma ativo no momento da confirmação e não
+// retraduz depois, então checamos os dois prefixos possíveis, não só o do
+// idioma atual da sessão.
+function isFlightDepartureEvent(title) {
+  if (!title) return false;
+  return title.startsWith(I18N['pt-BR'].flightDepartureTitle + ' —') || title.startsWith(I18N['en-US'].flightDepartureTitle + ' —');
+}
+
+async function extractExpenseFromReceipt(file) {
+  try {
+    if (!file.type || !file.type.startsWith('image/')) return { description: '', amount: null };
+    const { data } = await Tesseract.recognize(file, 'por+eng');
+    return parseExpenseCandidate(data.text);
+  } catch (error) {
+    logClientError(error, { source: 'extractExpenseFromReceipt' });
+    return { description: '', amount: null };
   }
 }
 
@@ -746,6 +1058,32 @@ function mapNotification(row) {
    ========================================================================= */
 const CACHE_PREFIX = 'trippin_cache::';
 const QUEUE_PREFIX = 'trippin_queue::';
+
+// Backlog v2 / H20.1-H20.2 — preferências de Configurações são por
+// dispositivo (localStorage), não por linha no banco: sobrevivem a
+// logout/login na mesma sessão do navegador, sem exigir uma migração nova.
+const THEME_STORAGE_KEY = 'trippin_theme'; // 'system' | 'light' | 'dark'
+const NOTIFICATIONS_MUTED_KEY = 'trippin_notifications_muted';
+
+function getStoredTheme() {
+  try { return localStorage.getItem(THEME_STORAGE_KEY) || 'system'; } catch (e) { return 'system'; }
+}
+function applyTheme(theme) {
+  if (theme === 'light' || theme === 'dark') document.documentElement.dataset.theme = theme;
+  else delete document.documentElement.dataset.theme;
+}
+function setStoredTheme(theme) {
+  try { localStorage.setItem(THEME_STORAGE_KEY, theme); } catch (e) { /* modo privado/quota: aplica só nesta sessão */ }
+  applyTheme(theme);
+}
+applyTheme(getStoredTheme());
+
+function getNotificationsMuted() {
+  try { return localStorage.getItem(NOTIFICATIONS_MUTED_KEY) === '1'; } catch (e) { return false; }
+}
+function setNotificationsMuted(muted) {
+  try { localStorage.setItem(NOTIFICATIONS_MUTED_KEY, muted ? '1' : '0'); } catch (e) { /* segue só nesta sessão */ }
+}
 
 function cacheGet(key) {
   try {
@@ -1072,6 +1410,14 @@ const RawTrippinAPI = {
   },
   async logOut() {
     await supabaseClient.auth.signOut();
+  },
+  // Backlog v2 / H20.3 — troca de senha via Supabase Auth nativo; a senha
+  // nunca passa por localStorage nem é lida de volta em texto plano (ao
+  // contrário do padrão do protótipo de referência, que guarda em base64
+  // reversível — problema de segurança, não um comportamento a copiar).
+  async changePassword(newPassword) {
+    const { error } = await supabaseClient.auth.updateUser({ password: newPassword });
+    if (error) throw error;
   },
   async getCurrentProfile() {
     const { data: { session } } = await supabaseClient.auth.getSession();
@@ -1540,6 +1886,7 @@ const RawTrippinAPI = {
       return (data || []).map(row => ({
         id: row.id, tripId: row.trip_id, uploadedBy: row.uploaded_by,
         storagePath: row.storage_path, extractedEventId: row.extracted_event_id, uploadedAt: row.uploaded_at,
+        docType: row.doc_type, extractedEventIds: row.extracted_event_ids || [],
       }));
     });
   },
@@ -1556,13 +1903,118 @@ const RawTrippinAPI = {
     if (error) throw error;
   },
 
+  // Backlog v2 / H16.2 — uma passagem com N pernas gera vários eventos;
+  // extracted_event_id (H8.3) guarda só o primeiro, por compatibilidade com
+  // o selo "vinculado a um evento" da aba Docs. doc_type = 'ticket' também
+  // alimenta a categorização de H16.4 — este método só é chamado pelo modo
+  // Passagem de DocConfirmSheet, então marcar o tipo aqui é seguro.
+  async linkDocumentToEvents(documentId, eventIds) {
+    const { error } = await supabaseClient.from('documents').update({
+      doc_type: 'ticket',
+      extracted_event_id: eventIds[0] || null,
+      extracted_event_ids: eventIds,
+    }).eq('id', documentId);
+    if (error) throw error;
+  },
+
+  // Backlog v2 / H16.3 — confirmação humana obrigatória (mesmo princípio de
+  // H8.3) antes de o documento virar um cartão de hospedagem fixado no
+  // Cronograma; nunca grava direto a partir da extração automática.
+  async confirmLodgingDocument(documentId, { checkIn, checkOut, address, confirmationCode }) {
+    const { error } = await supabaseClient.from('documents').update({
+      doc_type: 'lodging',
+      lodging_check_in: checkIn,
+      lodging_check_out: checkOut,
+      lodging_address: address || null,
+      lodging_confirmation_code: confirmationCode || null,
+    }).eq('id', documentId);
+    if (error) throw error;
+  },
+
+  // Backlog v2 / H21.2 — hospedagem confirmada a partir da busca (E21), sem
+  // arquivo de origem (storage_path fica nulo — coluna liberada pela
+  // migração 20260830080000). Entra no mesmo lugar que uma hospedagem
+  // extraída de documento (listLodgingDocuments/listLocationAnchors não
+  // diferenciam a origem, só o doc_type).
+  async createSearchedLodging(tripId, userId, { checkIn, checkOut, address }) {
+    const { error } = await supabaseClient.from('documents').insert({
+      trip_id: tripId, uploaded_by: userId, storage_path: null, source: 'search',
+      doc_type: 'lodging', lodging_check_in: checkIn, lodging_check_out: checkOut, lodging_address: address || null,
+    });
+    if (error) throw error;
+  },
+
+  // Backlog v2 / H16.3 + E17 (H17.1) — mesma lista alimenta o cartão de
+  // hospedagem fixado no Cronograma e, depois, a âncora de localização atual;
+  // uma viagem tem poucas hospedagens confirmadas, então não vale a pena
+  // filtrar por dia no banco — o filtro por dia é feito no cliente.
+  async listLodgingDocuments(tripId) {
+    return cachedRead(`lodging_documents_${tripId}`, async () => {
+      const { data, error } = await supabaseClient.from('documents')
+        .select('id, lodging_check_in, lodging_check_out, lodging_address, lodging_confirmation_code')
+        .eq('trip_id', tripId).eq('doc_type', 'lodging')
+        .order('lodging_check_in', { ascending: true });
+      if (error) throw error;
+      return (data || []).map(row => ({
+        id: row.id, checkIn: row.lodging_check_in, checkOut: row.lodging_check_out,
+        address: row.lodging_address, confirmationCode: row.lodging_confirmation_code,
+      }));
+    });
+  },
+
+  // Backlog v2 / H17.1 — âncoras de local por data: hospedagens confirmadas
+  // (check-in) + chegada final de cada passagem confirmada (o último evento
+  // gerado pela perna final, nunca uma conexão intermediária — conexão não é
+  // "onde a pessoa fica"). Poucas âncoras por viagem; ordenadas por data, o
+  // cálculo de "âncora vigente num dia" (H17.2) roda inteiro no cliente.
+  async listLocationAnchors(tripId) {
+    return cachedRead(`location_anchors_${tripId}`, async () => {
+      const [lodgingRes, ticketDocsRes] = await Promise.all([
+        supabaseClient.from('documents')
+          .select('lodging_check_in, lodging_address')
+          .eq('trip_id', tripId).eq('doc_type', 'lodging').not('lodging_check_in', 'is', null),
+        supabaseClient.from('documents')
+          .select('extracted_event_ids')
+          .eq('trip_id', tripId).eq('doc_type', 'ticket'),
+      ]);
+      if (lodgingRes.error) throw lodgingRes.error;
+      if (ticketDocsRes.error) throw ticketDocsRes.error;
+
+      const lodgingAnchors = (lodgingRes.data || [])
+        .filter(row => row.lodging_check_in && row.lodging_address)
+        .map(row => ({ date: row.lodging_check_in, city: row.lodging_address }));
+
+      const finalEventIds = (ticketDocsRes.data || [])
+        .map(row => (row.extracted_event_ids || []).slice(-1)[0])
+        .filter(Boolean);
+
+      let ticketAnchors = [];
+      if (finalEventIds.length > 0) {
+        const { data: eventsData, error: eventsError } = await supabaseClient
+          .from('schedule_events').select('starts_at, location').in('id', finalEventIds);
+        if (eventsError) throw eventsError;
+        ticketAnchors = (eventsData || [])
+          .filter(ev => ev.location)
+          .map(ev => ({ date: ev.starts_at.slice(0, 10), city: ev.location }));
+      }
+
+      return [...lodgingAnchors, ...ticketAnchors].sort((a, b) => a.date.localeCompare(b.date));
+    });
+  },
+
   // H14.2 — exclusão remove o arquivo e a referência; o evento já confirmado
-  // (se houver) permanece, exatamente como 00-F §13 documenta.
+  // (se houver) permanece, exatamente como 00-F §13 documenta. H21.2 — uma
+  // hospedagem vinda da busca não tem arquivo (storagePath nulo); nada a
+  // remover do Storage nesse caso.
   async deleteDocument(documentId, storagePath, tripId, userId) {
-    await supabaseClient.storage.from('trip-documents').remove([storagePath]);
+    if (storagePath) await supabaseClient.storage.from('trip-documents').remove([storagePath]);
     const { error } = await supabaseClient.from('documents').delete().eq('id', documentId);
     if (error) throw error;
-    if (tripId) localStorage.removeItem(CACHE_PREFIX + `documents_${tripId}`);
+    if (tripId) {
+      localStorage.removeItem(CACHE_PREFIX + `documents_${tripId}`);
+      localStorage.removeItem(CACHE_PREFIX + `lodging_documents_${tripId}`);
+      localStorage.removeItem(CACHE_PREFIX + `location_anchors_${tripId}`);
+    }
     if (userId) localStorage.removeItem(CACHE_PREFIX + `all_documents_${userId}`);
   },
 
@@ -1581,7 +2033,7 @@ const RawTrippinAPI = {
       return (docsRes.data || []).map(row => ({
         id: row.id, tripId: row.trip_id, tripName: row.trip ? row.trip.name : '',
         uploadedBy: row.uploaded_by, storagePath: row.storage_path,
-        extractedEventId: row.extracted_event_id, uploadedAt: row.uploaded_at,
+        extractedEventId: row.extracted_event_id, uploadedAt: row.uploaded_at, docType: row.doc_type,
         canDelete: row.uploaded_by === userId || roleByTrip.get(row.trip_id) === 'admin',
       }));
     });
@@ -1643,7 +2095,7 @@ function useOnlineStatus() {
   return online;
 }
 
-function Card({ children }) { return <div className="card">{children}</div>; }
+function Card({ children, style }) { return <div className="card" style={style}>{children}</div>; }
 
 function EmptyState({ title, actionLabel, onAction }) {
   return (
@@ -1738,6 +2190,13 @@ function TopBar({ title, onMenu, onBack }) {
 function LanguageScreen({ onChoose }) {
   return (
     <div className="screen">
+      {/* Backlog v2 / H22.2 — a referência estabelece a marca (wordmark +
+          tagline) já no primeiro contato; o app atual nunca fazia isso em
+          nenhuma tela (gap, não uma decisão registrada em 02-UXUI-spec.md). */}
+      <div style={{ textAlign: 'center', marginBottom: 24 }}>
+        <h1 style={{ fontSize: 28, margin: 0 }}>{t('pt-BR', 'appName')}<span style={{ color: 'var(--color-primary)' }}>.</span></h1>
+        <p className="hint">{t('pt-BR', 'appTagline')} / {t('en-US', 'appTagline')}</p>
+      </div>
       <h2>{t('pt-BR', 'onboardingChooseLanguage')} / {t('en-US', 'onboardingChooseLanguage')}</h2>
       <div className="field">
         <button className="btn btn-primary" style={{ marginBottom: 8 }} onClick={() => onChoose('pt-BR')}>Português (Brasil)</button>
@@ -2101,6 +2560,18 @@ function EventFormSheet({ lang, open, onClose, trip, dayIso, members, editingEve
           <label>{t(lang, 'notes')}</label>
           <input value={notes} onChange={e => setNotes(e.target.value)} disabled={readOnly} />
         </div>
+        {editingEvent && isFlightDepartureEvent(editingEvent.title) && (
+          <Card style={{ marginBottom: 12 }}>
+            <h3>{t(lang, 'checkInHelperTitle')}</h3>
+            <p className="hint">
+              {t(lang, 'checkInOpensAt', new Date(new Date(editingEvent.startsAt).getTime() - 48 * 60 * 60 * 1000).toLocaleString(lang))}
+            </p>
+            <a className="btn btn-secondary" style={{ width: 'auto' }} target="_blank" rel="noreferrer"
+              href={`https://www.google.com/search?q=${encodeURIComponent('check-in online ' + editingEvent.title)}`}>
+              {t(lang, 'searchCheckIn')}
+            </a>
+          </Card>
+        )}
         <div className="field">
           <label>{t(lang, 'participants')}</label>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
@@ -2137,7 +2608,7 @@ function addDaysIso(iso, n) {
   return toLocalDateIso(d);
 }
 
-function DayView({ lang, trip, dayIso, setDayIso, events, readOnly, openNew, openEdit, onReorder }) {
+function DayView({ lang, trip, dayIso, setDayIso, events, readOnly, openNew, openEdit, onReorder, lodging, currentLocation, hasAnyAnchors }) {
   const isToday = dayIso === toLocalDateIso(new Date());
   const dayLabel = new Date(dayIso + 'T00:00:00')
     .toLocaleDateString(lang, { weekday: 'short', day: '2-digit', month: '2-digit' });
@@ -2149,6 +2620,31 @@ function DayView({ lang, trip, dayIso, setDayIso, events, readOnly, openNew, ope
         <strong>{isToday ? t(lang, 'today') + ' · ' : ''}{dayLabel}</strong>
         <button className="icon-btn" onClick={() => setDayIso(addDaysIso(dayIso, 1))} disabled={dayIso >= trip.endDate}>→</button>
       </div>
+
+      {/* Backlog v2 / H17.2-H17.3 — âncora vigente no dia (derivada de docs de
+          hospedagem/passagem confirmados, H17.1). Sem nenhuma âncora na
+          viagem inteira, mostra um convite discreto em vez de nada; com
+          âncoras existindo mas nenhuma valendo ainda para este dia (antes da
+          primeira), não mostra nada — nunca um local errado (H17.3). */}
+      {currentLocation ? (
+        <p className="hint" style={{ marginBottom: 8 }}>📍 {t(lang, 'youAreIn', currentLocation.city)}</p>
+      ) : !hasAnyAnchors ? (
+        <p className="hint" style={{ marginBottom: 8 }}>{t(lang, 'noLocationYet')}</p>
+      ) : null}
+
+      {/* Backlog v2 / H16.3 — cartão fixado acima da lista de horários em
+          todo dia entre check-in e check-out de uma hospedagem confirmada. */}
+      {lodging && (
+        <Card style={{ background: 'var(--color-surface-alt, var(--color-border))', marginBottom: 12 }}>
+          <p className="hint" style={{ marginBottom: 4 }}>
+            {dayIso === lodging.checkIn ? `🔑 ${t(lang, 'lodgingCheckInToday')}`
+              : dayIso === lodging.checkOut ? `🧳 ${t(lang, 'lodgingCheckOutToday')}`
+              : `🏨 ${t(lang, 'lodgingStayingHere')}`}
+          </p>
+          {lodging.address && <p>{lodging.address}</p>}
+          {lodging.confirmationCode && <p className="hint">{t(lang, 'confirmationCode')}: {lodging.confirmationCode}</p>}
+        </Card>
+      )}
 
       {!readOnly && (
         <button className="btn btn-primary" style={{ marginBottom: 12 }} onClick={openNew}>{t(lang, 'addEvent')}</button>
@@ -2261,6 +2757,8 @@ function ScheduleScreen({ lang, trip, members, userId, readOnly, syncKey }) {
   const [viewMode, setViewMode] = useState('day'); // H6.3: 'day' | 'week' | 'month'
   const [dayEvents, setDayEvents] = useState(null);
   const [rangeEvents, setRangeEvents] = useState(null);
+  const [lodgingDocs, setLodgingDocs] = useState([]); // Backlog v2 / H16.3
+  const [locationAnchors, setLocationAnchors] = useState([]); // Backlog v2 / H17.1
   const [sheetOpen, setSheetOpen] = useState(false);
   const [editingEvent, setEditingEvent] = useState(null);
   const [reloadKey, setReloadKey] = useState(0);
@@ -2270,6 +2768,26 @@ function ScheduleScreen({ lang, trip, members, userId, readOnly, syncKey }) {
     TrippinAPI.listEventsForDay(trip.id, dayIso).then(list => { if (alive) setDayEvents(list); });
     return () => { alive = false; };
   }, [trip.id, dayIso, reloadKey, syncKey]);
+
+  // Backlog v2 / H16.3 — poucas hospedagens por viagem; carrega a lista
+  // inteira uma vez e filtra por dia no cliente (mesma decisão do TrippinAPI).
+  useEffect(() => {
+    let alive = true;
+    TrippinAPI.listLodgingDocuments(trip.id).then(list => { if (alive) setLodgingDocs(list); });
+    return () => { alive = false; };
+  }, [trip.id, reloadKey, syncKey]);
+
+  const currentLodging = lodgingDocs.find(l => l.checkIn && l.checkOut && dayIso >= l.checkIn && dayIso <= l.checkOut) || null;
+
+  // Backlog v2 / H17.1-H17.2 — mesma decisão de carregar tudo e filtrar por
+  // dia no cliente; poucas âncoras por viagem.
+  useEffect(() => {
+    let alive = true;
+    TrippinAPI.listLocationAnchors(trip.id).then(list => { if (alive) setLocationAnchors(list); });
+    return () => { alive = false; };
+  }, [trip.id, reloadKey, syncKey]);
+
+  const currentLocation = locationForDay(locationAnchors, dayIso);
 
   useEffect(() => {
     if (viewMode === 'day') return;
@@ -2297,7 +2815,8 @@ function ScheduleScreen({ lang, trip, members, userId, readOnly, syncKey }) {
       <SegmentedTabs tabs={viewTabs} active={viewMode} onChange={setViewMode} />
       {viewMode === 'day' && (
         <DayView lang={lang} trip={trip} dayIso={dayIso} setDayIso={setDayIso} events={dayEvents}
-          readOnly={readOnly} openNew={openNew} openEdit={openEdit} onReorder={onReorder} />
+          readOnly={readOnly} openNew={openNew} openEdit={openEdit} onReorder={onReorder}
+          lodging={currentLodging} currentLocation={currentLocation} hasAnyAnchors={locationAnchors.length > 0} />
       )}
       {viewMode === 'week' && (
         <WeekView lang={lang} trip={trip} dayIso={dayIso} onPickDay={pickDay} rangeEvents={rangeEvents} />
@@ -2326,12 +2845,28 @@ function ExpenseFormSheet({ lang, open, onClose, trip, members, events, userId, 
   const [fixedAmounts, setFixedAmounts] = useState({}); // userId -> string
   const [parts, setParts] = useState({}); // userId -> string (peso)
   const [saving, setSaving] = useState(false);
+  const [scanningReceipt, setScanningReceipt] = useState(false); // Backlog v2 / H19.1
+  const receiptInputRef = useRef(null);
 
   useEffect(() => {
     if (!open) return;
     setDescription(''); setAmount(''); setCurrency('BRL'); setEventId(''); setPaidBy(userId);
     setParticipantIds([]); setSplitMethod('equal'); setFixedAmounts({}); setParts({});
   }, [open, userId]);
+
+  async function onReceiptSelected(e) {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    setScanningReceipt(true);
+    try {
+      const parsed = await extractExpenseFromReceipt(file);
+      if (parsed.description) setDescription(parsed.description);
+      if (parsed.amount != null) setAmount(String(parsed.amount));
+    } finally {
+      setScanningReceipt(false);
+      e.target.value = '';
+    }
+  }
 
   function onPickEvent(id) {
     setEventId(id);
@@ -2383,6 +2918,11 @@ function ExpenseFormSheet({ lang, open, onClose, trip, members, events, userId, 
   return (
     <BottomSheet open={open} onClose={onClose}>
       <h3>{t(lang, 'addExpense')}</h3>
+      <input ref={receiptInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={onReceiptSelected} />
+      <button type="button" className="btn btn-secondary" style={{ marginBottom: 12 }}
+        disabled={scanningReceipt} onClick={() => receiptInputRef.current.click()}>
+        📎 {scanningReceipt ? t(lang, 'readingDocument') : t(lang, 'attachReceipt')}
+      </button>
       <form onSubmit={submit}>
         <div className="field">
           <label>{t(lang, 'expenseDescription')}</label>
@@ -2615,48 +3155,273 @@ function ExpensesScreen({ lang, trip, members, userId, readOnly, syncKey }) {
 /* =========================================================================
    Telas — Viagem: Docs com inteligência (E8 / H8.1-H8.5, diferencial central)
    ========================================================================= */
+const EMPTY_LEG = { origin: '', destination: '', departureDate: '', departureTime: '', arrivalDate: '', arrivalTime: '' };
+
 function DocConfirmSheet({ lang, open, onClose, trip, userId, candidate, documentId, onDone }) {
+  // Backlog v2 / H16.2-H16.3 — a mesma tela de confirmação humana obrigatória
+  // (H8.3) passa a cobrir três resultados possíveis: um evento pontual (fluxo
+  // original), uma hospedagem (vira um cartão fixado no Cronograma, H16.3) ou
+  // uma passagem com uma ou mais pernas (vira um evento de embarque + um de
+  // desembarque por perna, H16.2). A extração automática só pré-seleciona o
+  // modo — o usuário sempre pode trocar ou corrigir qualquer campo antes de
+  // salvar (mesmo princípio de H8.3/H8.5).
+  const [mode, setMode] = useState('event'); // 'event' | 'lodging' | 'ticket'
   const [title, setTitle] = useState('');
   const [location, setLocation] = useState('');
   const [date, setDate] = useState('');
   const [time, setTime] = useState('');
   const [notes, setNotes] = useState('');
+  const [checkIn, setCheckIn] = useState('');
+  const [checkOut, setCheckOut] = useState('');
+  const [address, setAddress] = useState('');
+  const [confirmationCode, setConfirmationCode] = useState('');
+  const [legs, setLegs] = useState([]);
   const [dayEvents, setDayEvents] = useState([]);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (!open) return;
+    const lodging = candidate.lodging;
+    const ticket = candidate.ticket;
+    setMode(ticket && ticket.length ? 'ticket' : lodging ? 'lodging' : 'event');
     setTitle(candidate.title || '');
-    setLocation('');
+    setLocation(candidate.location || '');
     setDate(candidate.date || '');
     setTime(candidate.time || '');
     setNotes('');
+    setCheckIn((lodging && lodging.checkIn) || candidate.date || '');
+    setCheckOut((lodging && lodging.checkOut) || '');
+    setAddress((lodging && lodging.address) || candidate.location || '');
+    setConfirmationCode((lodging && lodging.confirmationCode) || '');
+    setLegs(ticket && ticket.length ? ticket.map(leg => ({ ...leg })) : []);
   }, [open, candidate]);
 
   // H8.4 — checa conflito assim que houver data suficiente para comparar,
-  // antes da confirmação (não depois de o evento já existir).
+  // antes da confirmação (não depois de o evento já existir). Só se aplica
+  // ao modo de evento único; hospedagem e passagem têm suas próprias regras.
   useEffect(() => {
-    if (!date) { setDayEvents([]); return; }
+    if (mode !== 'event' || !date) { setDayEvents([]); return; }
     let alive = true;
     TrippinAPI.listEventsForDay(trip.id, date).then(list => { if (alive) setDayEvents(list); });
     return () => { alive = false; };
-  }, [trip.id, date]);
+  }, [trip.id, date, mode]);
 
   const candidateEvent = date && time ? { id: null, startsAt: `${date}T${time}:00`, endsAt: null } : null;
-  const hasConflict = candidateEvent && dayEvents.some(e => eventsOverlap(e, candidateEvent));
-  const isEmptyExtraction = !candidate.date && !candidate.time;
+  const hasConflict = mode === 'event' && candidateEvent && dayEvents.some(e => eventsOverlap(e, candidateEvent));
+  const isEmptyExtraction = !candidate.date && !candidate.time && !candidate.lodging && !candidate.ticket;
+
+  function updateLeg(idx, patch) {
+    setLegs(prev => prev.map((leg, i) => i === idx ? { ...leg, ...patch } : leg));
+  }
+  function removeLeg(idx) {
+    setLegs(prev => prev.filter((_, i) => i !== idx));
+  }
+  function addLeg() {
+    setLegs(prev => [...prev, { ...EMPTY_LEG }]);
+  }
+
+  const legsValid = legs.length > 0 && legs.every(l =>
+    l.origin && l.destination && l.departureDate && l.departureTime && l.arrivalDate && l.arrivalTime);
 
   async function confirmCreate(e) {
     e.preventDefault();
-    if (!date || !time || !title) return;
+    if (mode === 'lodging' ? (!checkIn || !checkOut) : mode === 'ticket' ? !legsValid : (!date || !time || !title)) return;
     setSaving(true);
     try {
-      const startsAt = `${date}T${time}:00`;
-      const event = await TrippinAPI.createEvent({
-        tripId: trip.id, title, location, startsAt, endsAt: null, notes,
-        userId, participantIds: [],
+      if (mode === 'lodging') {
+        await TrippinAPI.confirmLodgingDocument(documentId, { checkIn, checkOut, address, confirmationCode });
+      } else if (mode === 'ticket') {
+        const eventIds = [];
+        for (const leg of legs) {
+          const departure = await TrippinAPI.createEvent({
+            tripId: trip.id, userId, participantIds: [],
+            title: `${t(lang, 'flightDepartureTitle')} — ${leg.origin} → ${leg.destination}`,
+            location: leg.origin, startsAt: `${leg.departureDate}T${leg.departureTime}:00`, endsAt: null, notes: '',
+          });
+          eventIds.push(departure.id);
+          const arrival = await TrippinAPI.createEvent({
+            tripId: trip.id, userId, participantIds: [],
+            title: `${t(lang, 'flightArrivalTitle')} — ${leg.origin} → ${leg.destination}`,
+            location: leg.destination, startsAt: `${leg.arrivalDate}T${leg.arrivalTime}:00`, endsAt: null, notes: '',
+          });
+          eventIds.push(arrival.id);
+        }
+        await TrippinAPI.linkDocumentToEvents(documentId, eventIds);
+      } else {
+        const startsAt = `${date}T${time}:00`;
+        const event = await TrippinAPI.createEvent({
+          tripId: trip.id, title, location, startsAt, endsAt: null, notes,
+          userId, participantIds: [],
+        });
+        await TrippinAPI.linkDocumentToEvent(documentId, event.id);
+      }
+      onDone();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const modeTabs = [
+    { key: 'event', label: t(lang, 'modeEvent') },
+    { key: 'lodging', label: t(lang, 'modeLodging') },
+    { key: 'ticket', label: t(lang, 'modeTicket') },
+  ];
+
+  return (
+    <BottomSheet open={open} onClose={onClose}>
+      <h3>{t(lang, 'confirmExtraction')}</h3>
+      {isEmptyExtraction && <p className="hint">{t(lang, 'extractionEmptyHint')}</p>}
+      <div style={{ margin: '4px 0 12px' }}>
+        <SegmentedTabs tabs={modeTabs} active={mode} onChange={setMode} />
+      </div>
+      <form onSubmit={confirmCreate}>
+        {mode === 'lodging' && (
+          <>
+            <div className="btn-block-row">
+              <div className="field" style={{ flex: 1 }}>
+                <label>{t(lang, 'checkInDate')}</label>
+                <input type="date" value={checkIn} onChange={e => setCheckIn(e.target.value)} required
+                  min={trip.startDate} max={trip.endDate} />
+              </div>
+              <div className="field" style={{ flex: 1 }}>
+                <label>{t(lang, 'checkOutDate')}</label>
+                <input type="date" value={checkOut} onChange={e => setCheckOut(e.target.value)} required
+                  min={checkIn || trip.startDate} max={trip.endDate} />
+              </div>
+            </div>
+            <div className="field">
+              <label>{t(lang, 'location')}</label>
+              <input value={address} onChange={e => setAddress(e.target.value)} />
+            </div>
+            <div className="field">
+              <label>{t(lang, 'confirmationCode')}</label>
+              <input value={confirmationCode} onChange={e => setConfirmationCode(e.target.value)} />
+            </div>
+          </>
+        )}
+        {mode === 'ticket' && (
+          <>
+            {legs.length === 0 && <p className="hint">{t(lang, 'noLegsDetected')}</p>}
+            {legs.map((leg, idx) => (
+              <Card key={idx} style={{ marginBottom: 10 }}>
+                <div className="row-between">
+                  <strong>{t(lang, 'legLabel', idx + 1)}</strong>
+                  <button type="button" className="btn btn-secondary" style={{ width: 'auto', padding: '4px 10px', fontSize: 12 }}
+                    onClick={() => removeLeg(idx)}>{t(lang, 'removeLeg')}</button>
+                </div>
+                <div className="btn-block-row">
+                  <div className="field" style={{ flex: 1 }}>
+                    <label>{t(lang, 'legOrigin')}</label>
+                    <input value={leg.origin} onChange={e => updateLeg(idx, { origin: e.target.value })} required />
+                  </div>
+                  <div className="field" style={{ flex: 1 }}>
+                    <label>{t(lang, 'legDestination')}</label>
+                    <input value={leg.destination} onChange={e => updateLeg(idx, { destination: e.target.value })} required />
+                  </div>
+                </div>
+                <p className="hint" style={{ marginTop: 6 }}>{t(lang, 'departureLabel')}</p>
+                <div className="btn-block-row">
+                  <div className="field" style={{ flex: 1 }}>
+                    <input type="date" value={leg.departureDate} onChange={e => updateLeg(idx, { departureDate: e.target.value })} required
+                      min={trip.startDate} max={trip.endDate} />
+                  </div>
+                  <div className="field" style={{ flex: 1 }}>
+                    <input type="time" value={leg.departureTime} onChange={e => updateLeg(idx, { departureTime: e.target.value })} required />
+                  </div>
+                </div>
+                <p className="hint" style={{ marginTop: 6 }}>{t(lang, 'arrivalLabel')}</p>
+                <div className="btn-block-row">
+                  <div className="field" style={{ flex: 1 }}>
+                    <input type="date" value={leg.arrivalDate} onChange={e => updateLeg(idx, { arrivalDate: e.target.value })} required
+                      min={trip.startDate} max={trip.endDate} />
+                  </div>
+                  <div className="field" style={{ flex: 1 }}>
+                    <input type="time" value={leg.arrivalTime} onChange={e => updateLeg(idx, { arrivalTime: e.target.value })} required />
+                  </div>
+                </div>
+              </Card>
+            ))}
+            <button type="button" className="btn btn-secondary" style={{ marginBottom: 12 }} onClick={addLeg}>
+              {t(lang, 'addLeg')}
+            </button>
+          </>
+        )}
+        {mode === 'event' && (
+          <>
+            <div className="field">
+              <label>{t(lang, 'eventTitle')}</label>
+              <input value={title} onChange={e => setTitle(e.target.value)} required />
+            </div>
+            <div className="field">
+              <label>{t(lang, 'location')}</label>
+              <input value={location} onChange={e => setLocation(e.target.value)} />
+            </div>
+            <div className="btn-block-row">
+              <div className="field" style={{ flex: 1 }}>
+                <label>{t(lang, 'startDate')}</label>
+                <input type="date" value={date} onChange={e => setDate(e.target.value)} required
+                  min={trip.startDate} max={trip.endDate} />
+              </div>
+              <div className="field" style={{ flex: 1 }}>
+                <label>{t(lang, 'startTime')}</label>
+                <input type="time" value={time} onChange={e => setTime(e.target.value)} required />
+              </div>
+            </div>
+            <div className="field">
+              <label>{t(lang, 'notes')}</label>
+              <input value={notes} onChange={e => setNotes(e.target.value)} />
+            </div>
+            {hasConflict && <div className="banner-error">{t(lang, 'docConflictWarning')}</div>}
+          </>
+        )}
+        <div className="btn-block-row">
+          <button type="button" className="btn btn-secondary" onClick={onClose}>{t(lang, 'discardDocument')}</button>
+          <button className="btn btn-primary" type="submit" disabled={saving || (mode === 'ticket' && !legsValid)}>
+            {mode === 'lodging' ? t(lang, 'saveLodging') : mode === 'ticket' ? t(lang, 'saveTicket') : t(lang, 'createEventFromDoc')}
+          </button>
+        </div>
+      </form>
+    </BottomSheet>
+  );
+}
+
+// Backlog v2 / H21.1-H21.2 — busca de hospedagem por destino+datas, sem
+// preço ao vivo (dados livres OSM/Overpass); confirmar uma opção grava uma
+// hospedagem (TrippinAPI.createSearchedLodging) que entra no mesmo lugar de
+// uma hospedagem extraída de documento (cartão no Cronograma, H16.3;
+// âncora de local, H17.1).
+function LodgingSearchSheet({ lang, open, onClose, trip, userId, onDone }) {
+  const [destination, setDestination] = useState('');
+  const [checkIn, setCheckIn] = useState('');
+  const [checkOut, setCheckOut] = useState('');
+  const [results, setResults] = useState(null);
+  const [searching, setSearching] = useState(false);
+  const [selectedIdx, setSelectedIdx] = useState(null);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!open) { setDestination(''); setCheckIn(''); setCheckOut(''); setResults(null); setSelectedIdx(null); }
+  }, [open]);
+
+  async function search(e) {
+    e.preventDefault();
+    setSearching(true);
+    setSelectedIdx(null);
+    try {
+      setResults(await searchLodgingNearby(destination, lang));
+    } finally {
+      setSearching(false);
+    }
+  }
+
+  async function confirm() {
+    const selected = selectedIdx != null && results ? results[selectedIdx] : null;
+    if (!selected || !checkIn || !checkOut) return;
+    setSaving(true);
+    try {
+      await TrippinAPI.createSearchedLodging(trip.id, userId, {
+        checkIn, checkOut, address: [selected.name, selected.address].filter(Boolean).join(' — '),
       });
-      await TrippinAPI.linkDocumentToEvent(documentId, event.id);
       onDone();
     } finally {
       setSaving(false);
@@ -2665,38 +3430,46 @@ function DocConfirmSheet({ lang, open, onClose, trip, userId, candidate, documen
 
   return (
     <BottomSheet open={open} onClose={onClose}>
-      <h3>{t(lang, 'confirmExtraction')}</h3>
-      {isEmptyExtraction && <p className="hint">{t(lang, 'extractionEmptyHint')}</p>}
-      <form onSubmit={confirmCreate}>
+      <h3>{t(lang, 'searchLodgingTitle')}</h3>
+      <form onSubmit={search}>
         <div className="field">
-          <label>{t(lang, 'eventTitle')}</label>
-          <input value={title} onChange={e => setTitle(e.target.value)} required />
-        </div>
-        <div className="field">
-          <label>{t(lang, 'location')}</label>
-          <input value={location} onChange={e => setLocation(e.target.value)} />
+          <label>{t(lang, 'destinations')}</label>
+          <input value={destination} onChange={e => setDestination(e.target.value)} required />
         </div>
         <div className="btn-block-row">
           <div className="field" style={{ flex: 1 }}>
-            <label>{t(lang, 'startDate')}</label>
-            <input type="date" value={date} onChange={e => setDate(e.target.value)} required
-              min={trip.startDate} max={trip.endDate} />
+            <label>{t(lang, 'checkInDate')}</label>
+            <input type="date" value={checkIn} onChange={e => setCheckIn(e.target.value)}
+              min={trip.startDate} max={trip.endDate} required />
           </div>
           <div className="field" style={{ flex: 1 }}>
-            <label>{t(lang, 'startTime')}</label>
-            <input type="time" value={time} onChange={e => setTime(e.target.value)} required />
+            <label>{t(lang, 'checkOutDate')}</label>
+            <input type="date" value={checkOut} onChange={e => setCheckOut(e.target.value)}
+              min={checkIn || trip.startDate} max={trip.endDate} required />
           </div>
         </div>
-        <div className="field">
-          <label>{t(lang, 'notes')}</label>
-          <input value={notes} onChange={e => setNotes(e.target.value)} />
-        </div>
-        {hasConflict && <div className="banner-error">{t(lang, 'docConflictWarning')}</div>}
-        <div className="btn-block-row">
-          <button type="button" className="btn btn-secondary" onClick={onClose}>{t(lang, 'discardDocument')}</button>
-          <button className="btn btn-primary" type="submit" disabled={saving}>{t(lang, 'createEventFromDoc')}</button>
-        </div>
+        <button className="btn btn-primary" type="submit" disabled={searching} style={{ marginBottom: 12 }}>
+          {searching ? t(lang, 'searchingLodging') : t(lang, 'searchLodgingAction')}
+        </button>
       </form>
+      <p className="hint" style={{ marginBottom: 8 }}>{t(lang, 'lodgingSearchNoPriceNote')}</p>
+      {results && results.length === 0 && <EmptyState title={t(lang, 'noLodgingFound')} />}
+      {results && results.map((r, i) => (
+        <Card key={i} style={{
+          marginBottom: 8, cursor: 'pointer',
+          border: selectedIdx === i ? '2px solid var(--color-primary)' : undefined,
+        }}>
+          <div onClick={() => setSelectedIdx(i)}>
+            <h3>{r.name}</h3>
+            {r.address && <p className="hint">{r.address}</p>}
+          </div>
+        </Card>
+      ))}
+      {selectedIdx != null && (
+        <button className="btn btn-primary" onClick={confirm} disabled={saving || !checkIn || !checkOut}>
+          {t(lang, 'confirmLodgingFromSearch')}
+        </button>
+      )}
     </BottomSheet>
   );
 }
@@ -2706,17 +3479,19 @@ function DocsScreen({ lang, trip, members, userId, readOnly }) {
   const [urls, setUrls] = useState({});
   const [processing, setProcessing] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
-  const [candidate, setCandidate] = useState({ date: null, time: null, title: '' });
+  const [candidate, setCandidate] = useState({ date: null, time: null, title: '', location: null, lodging: null, ticket: null });
   const [pendingDocId, setPendingDocId] = useState(null);
   const [reloadKey, setReloadKey] = useState(0);
+  const [searchLodgingOpen, setSearchLodgingOpen] = useState(false); // Backlog v2 / H21.1
   const fileInputRef = useRef(null);
+  const cameraInputRef = useRef(null); // Backlog v2 / H19.3
 
   useEffect(() => {
     let alive = true;
     TrippinAPI.listDocuments(trip.id).then(async list => {
       if (!alive) return;
       setDocuments(list);
-      const entries = await Promise.all(list.map(async d => [d.id, await TrippinAPI.getDocumentSignedUrl(d.storagePath)]));
+      const entries = await Promise.all(list.map(async d => [d.id, d.storagePath ? await TrippinAPI.getDocumentSignedUrl(d.storagePath) : null]));
       if (alive) setUrls(Object.fromEntries(entries));
     });
     return () => { alive = false; };
@@ -2736,17 +3511,24 @@ function DocsScreen({ lang, trip, members, userId, readOnly }) {
       setConfirmOpen(true);
     } finally {
       setProcessing(false);
-      if (fileInputRef.current) fileInputRef.current.value = '';
+      e.target.value = '';
     }
   }
 
   return (
     <div>
       {!readOnly && (
-        <div style={{ marginBottom: 12 }}>
+        <div className="btn-block-row" style={{ marginBottom: 12 }}>
           <input ref={fileInputRef} type="file" accept="image/*,.pdf" style={{ display: 'none' }} onChange={onFileSelected} />
+          <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={onFileSelected} />
           <button className="btn btn-primary" disabled={processing} onClick={() => fileInputRef.current.click()}>
             {t(lang, 'addDocument')}
+          </button>
+          <button className="btn btn-secondary" disabled={processing} onClick={() => cameraInputRef.current.click()}>
+            📷 {t(lang, 'takePhoto')}
+          </button>
+          <button className="btn btn-secondary" onClick={() => setSearchLodgingOpen(true)}>
+            🔎 {t(lang, 'searchLodgingAction')}
           </button>
         </div>
       )}
@@ -2761,7 +3543,11 @@ function DocsScreen({ lang, trip, members, userId, readOnly }) {
           <div className="row-between">
             <div>
               <p className="hint">{new Date(doc.uploadedAt).toLocaleString(lang)}</p>
-              {doc.extractedEventId && <p className="hint">✓ {t(lang, 'linkedToEvent')}</p>}
+              {doc.extractedEventId && (
+                <p className="hint">✓ {doc.extractedEventIds && doc.extractedEventIds.length > 1
+                  ? t(lang, 'linkedToEvents', doc.extractedEventIds.length) : t(lang, 'linkedToEvent')}</p>
+              )}
+              {doc.docType === 'lodging' && <p className="hint">🏨 {t(lang, 'lodgingStayingHere')}</p>}
             </div>
             {urls[doc.id] && (
               <a href={urls[doc.id]} target="_blank" rel="noreferrer" className="btn btn-secondary" style={{ width: 'auto' }}>
@@ -2775,17 +3561,40 @@ function DocsScreen({ lang, trip, members, userId, readOnly }) {
       <DocConfirmSheet lang={lang} open={confirmOpen} onClose={() => setConfirmOpen(false)} trip={trip}
         userId={userId} candidate={candidate} documentId={pendingDocId}
         onDone={() => { setConfirmOpen(false); setReloadKey(k => k + 1); }} />
+      <LodgingSearchSheet lang={lang} open={searchLodgingOpen} onClose={() => setSearchLodgingOpen(false)} trip={trip} userId={userId}
+        onDone={() => { setSearchLodgingOpen(false); setReloadKey(k => k + 1); }} />
     </div>
   );
 }
 
 /* =========================================================================
-   Telas — Viagem: Mapa (E9 / H9.1-H9.2)
+   Telas — Viagem: Mapa (E9 / H9.1-H9.2; Backlog v2 / E18 — rota curta e
+   simplificada: pinos em ordem cronológica, visitado vs. futuro, "você está
+   aqui")
    ========================================================================= */
+
+// Backlog v2 / H18.2 — só destinos/locais de evento com alguma data conhecida
+// (via evento ou via âncora de local, E17) entram na classificação
+// visitado/hoje/futuro; sem data, o pino fica neutro (nunca inventa uma data).
+function mapPinCategory(dateIso, todayIso) {
+  if (!dateIso) return 'undated';
+  if (dateIso < todayIso) return 'past';
+  if (dateIso > todayIso) return 'future';
+  return 'today';
+}
+const MAP_PIN_COLORS = { past: '#1F5C56', today: '#E2673A', future: '#9AA5B1', undated: '#C9BFA9' };
+
+function setEarliestDate(map, key, dateIso) {
+  if (!key || !dateIso) return;
+  const existing = map.get(key);
+  if (existing === undefined || existing === null || dateIso < existing) map.set(key, dateIso);
+}
+
 function MapScreen({ lang, trip }) {
   const mapDivRef = useRef(null);
   const mapInstanceRef = useRef(null);
   const markersRef = useRef([]);
+  const routeLineRef = useRef(null);
   const [pins, setPins] = useState([]);
   const [loadingPins, setLoadingPins] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -2801,22 +3610,41 @@ function MapScreen({ lang, trip }) {
     return () => { mapInstanceRef.current && mapInstanceRef.current.remove(); mapInstanceRef.current = null; };
   }, []);
 
-  // H9.1 — geocodifica destinos da viagem + locais de eventos com endereço.
+  // H9.1 (+ H18.1-H18.3) — geocodifica destinos da viagem + locais de eventos
+  // com endereço + âncoras de local (E17/H17.1), guardando a data mais cedo
+  // conhecida de cada lugar para poder ordenar/colorir o pino.
   useEffect(() => {
     let alive = true;
     (async () => {
       setLoadingPins(true);
       const places = new Set(trip.destinations || []);
+      const placeDates = new Map();
       const days = [];
       let d = trip.startDate;
       while (d <= trip.endDate && days.length < 60) { days.push(d); d = addDaysIso(d, 1); }
-      const allEvents = (await Promise.all(days.map(day => TrippinAPI.listEventsForDay(trip.id, day)))).flat();
-      allEvents.forEach(ev => { if (ev.location) places.add(ev.location); });
+      const [allEventsNested, anchors] = await Promise.all([
+        Promise.all(days.map(day => TrippinAPI.listEventsForDay(trip.id, day))),
+        TrippinAPI.listLocationAnchors(trip.id),
+      ]);
+      const allEvents = allEventsNested.flat();
+      allEvents.forEach(ev => { if (ev.location) { places.add(ev.location); setEarliestDate(placeDates, ev.location, ev.startsAt.slice(0, 10)); } });
+      anchors.forEach(a => { places.add(a.city); setEarliestDate(placeDates, a.city, a.date); });
+
+      const todayIso = todayIsoWithinRange(trip);
+      const currentCity = locationForDay(anchors, todayIso);
 
       const results = [];
       for (const place of places) {
         const geo = await geocodePlace(place);
-        if (geo) results.push({ label: place, lat: geo.lat, lon: geo.lon });
+        if (geo) {
+          const dateIso = placeDates.get(place) || null;
+          const isCurrent = !!currentCity && currentCity.city === place;
+          results.push({
+            label: place, lat: geo.lat, lon: geo.lon, date: dateIso,
+            category: isCurrent ? 'today' : mapPinCategory(dateIso, todayIso),
+            isCurrent,
+          });
+        }
         await new Promise(r => setTimeout(r, 300)); // respeita o limite de uso do Nominatim
       }
       if (alive) { setPins(results); setLoadingPins(false); }
@@ -2827,11 +3655,34 @@ function MapScreen({ lang, trip }) {
   useEffect(() => {
     if (!mapInstanceRef.current) return;
     markersRef.current.forEach(m => m.remove());
-    markersRef.current = pins.map(p => L.marker([p.lat, p.lon]).addTo(mapInstanceRef.current).bindPopup(p.label));
+    if (routeLineRef.current) { routeLineRef.current.remove(); routeLineRef.current = null; }
+
+    markersRef.current = pins.map(p => {
+      const marker = L.circleMarker([p.lat, p.lon], {
+        radius: p.isCurrent ? 11 : 7,
+        color: MAP_PIN_COLORS[p.category],
+        fillColor: MAP_PIN_COLORS[p.category],
+        fillOpacity: 0.9,
+        weight: p.isCurrent ? 3 : 1,
+      }).addTo(mapInstanceRef.current);
+      marker.bindPopup(p.isCurrent ? `📍 ${t(lang, 'youAreHereLabel')} — ${p.label}` : p.label);
+      return marker;
+    });
+
+    // H18.1 — linha simples conectando só os pinos com data conhecida, em
+    // ordem cronológica; pinos sem data (destino sem evento/âncora ainda)
+    // ficam de fora da linha, mas continuam visíveis no mapa.
+    const dated = pins.filter(p => p.date).sort((a, b) => a.date.localeCompare(b.date));
+    if (dated.length > 1) {
+      routeLineRef.current = L.polyline(dated.map(p => [p.lat, p.lon]), {
+        color: '#1F5C56', weight: 3, opacity: 0.6, dashArray: '6 6',
+      }).addTo(mapInstanceRef.current);
+    }
+
     if (pins.length > 0) {
       mapInstanceRef.current.fitBounds(L.latLngBounds(pins.map(p => [p.lat, p.lon])), { padding: [30, 30], maxZoom: 12 });
     }
-  }, [pins]);
+  }, [pins, lang]);
 
   // H9.2 — busca com debounce, mínimo de 3 letras, cache (geocodePlace).
   useEffect(() => {
@@ -2859,6 +3710,13 @@ function MapScreen({ lang, trip }) {
       </div>
       {loadingPins && <p className="hint">{t(lang, 'loadingPins')}</p>}
       {!loadingPins && pins.length === 0 && <p className="hint">{t(lang, 'noPinsYet')}</p>}
+      {!loadingPins && pins.length > 0 && (
+        <div className="hint" style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 8 }}>
+          <span><span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: 4, background: MAP_PIN_COLORS.past, marginRight: 4 }} />{t(lang, 'mapLegendPast')}</span>
+          <span><span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: 4, background: MAP_PIN_COLORS.today, marginRight: 4 }} />{t(lang, 'mapLegendToday')}</span>
+          <span><span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: 4, background: MAP_PIN_COLORS.future, marginRight: 4 }} />{t(lang, 'mapLegendFuture')}</span>
+        </div>
+      )}
       <div ref={mapDivRef} style={{ height: 360, borderRadius: 'var(--radius-lg)', overflow: 'hidden' }} />
     </div>
   );
@@ -2873,6 +3731,7 @@ function GalleryScreen({ lang, trip, members, userId, readOnly }) {
   const [uploading, setUploading] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
   const fileInputRef = useRef(null);
+  const cameraInputRef = useRef(null); // Backlog v2 / H19.3
 
   useEffect(() => {
     let alive = true;
@@ -2896,17 +3755,21 @@ function GalleryScreen({ lang, trip, members, userId, readOnly }) {
       setReloadKey(k => k + 1);
     } finally {
       setUploading(false);
-      if (fileInputRef.current) fileInputRef.current.value = '';
+      e.target.value = '';
     }
   }
 
   return (
     <div>
       {!readOnly && (
-        <div style={{ marginBottom: 12 }}>
+        <div className="btn-block-row" style={{ marginBottom: 12 }}>
           <input ref={fileInputRef} type="file" accept="image/*" multiple style={{ display: 'none' }} onChange={onFilesSelected} />
+          <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={onFilesSelected} />
           <button className="btn btn-primary" disabled={uploading} onClick={() => fileInputRef.current.click()}>
             {t(lang, 'uploadPhoto')}
+          </button>
+          <button className="btn btn-secondary" disabled={uploading} onClick={() => cameraInputRef.current.click()}>
+            📷 {t(lang, 'takePhoto')}
           </button>
         </div>
       )}
@@ -3240,15 +4103,6 @@ function ProfileScreen({ lang, user, onUpdate, onChangeLanguage }) {
   );
 }
 
-function PlaceholderScreen({ lang, title, onBack }) {
-  return (
-    <div className="screen">
-      <h2>{title}</h2>
-      <EmptyState title={t(lang, 'comingSoon')} />
-    </div>
-  );
-}
-
 // H13.2 — mensagem renderizada no idioma atual a partir do payload salvo no
 // banco (não uma string pronta em pt-BR, ao contrário do audit_log — aqui o
 // usuário pode estar em qualquer um dos idiomas suportados).
@@ -3315,6 +4169,87 @@ function NotificationsScreen({ lang, user, onChanged }) {
           </div>
         </Card>
       ))}
+    </div>
+  );
+}
+
+// Backlog v2 / E20 — Configurações reais (drawer), antes 100% placeholder.
+// H20.1 tema, H20.2 silenciar notificações: preferências de dispositivo via
+// localStorage (ver THEME_STORAGE_KEY/NOTIFICATIONS_MUTED_KEY). H20.3 troca
+// de senha via Supabase Auth nativo (TrippinAPI.changePassword).
+function SettingsScreen({ lang, onNotificationsMutedChange }) {
+  const [theme, setTheme] = useState(getStoredTheme);
+  const [muted, setMuted] = useState(getNotificationsMuted);
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [passwordSaving, setPasswordSaving] = useState(false);
+  const [passwordMessage, setPasswordMessage] = useState('');
+
+  function changeTheme(value) {
+    setTheme(value);
+    setStoredTheme(value);
+  }
+
+  function toggleMuted() {
+    const next = !muted;
+    setMuted(next);
+    setNotificationsMuted(next);
+    if (onNotificationsMutedChange) onNotificationsMutedChange();
+  }
+
+  async function submitPassword(e) {
+    e.preventDefault();
+    setPasswordMessage('');
+    if (newPassword.length < 6) { setPasswordMessage(t(lang, 'passwordTooShort')); return; }
+    if (newPassword !== confirmPassword) { setPasswordMessage(t(lang, 'passwordMismatch')); return; }
+    setPasswordSaving(true);
+    try {
+      await TrippinAPI.changePassword(newPassword);
+      setNewPassword(''); setConfirmPassword('');
+      setPasswordMessage(t(lang, 'passwordChanged'));
+    } catch (error) {
+      setPasswordMessage(t(lang, 'passwordChangeFailed'));
+    } finally {
+      setPasswordSaving(false);
+    }
+  }
+
+  const themeTabs = [
+    { key: 'system', label: t(lang, 'themeSystem') },
+    { key: 'light', label: t(lang, 'themeLight') },
+    { key: 'dark', label: t(lang, 'themeDark') },
+  ];
+
+  return (
+    <div className="screen">
+      <Card style={{ marginBottom: 12 }}>
+        <h3>{t(lang, 'themeLabel')}</h3>
+        <SegmentedTabs tabs={themeTabs} active={theme} onChange={changeTheme} />
+      </Card>
+
+      <Card style={{ marginBottom: 12 }}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <input type="checkbox" checked={!muted} onChange={toggleMuted} />
+          {t(lang, 'notificationsEnabledLabel')}
+        </label>
+        <p className="hint" style={{ marginTop: 6 }}>{t(lang, 'notificationsMutedHint')}</p>
+      </Card>
+
+      <Card>
+        <h3>{t(lang, 'changePasswordTitle')}</h3>
+        <form onSubmit={submitPassword}>
+          <div className="field">
+            <label>{t(lang, 'newPassword')}</label>
+            <input type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)} required minLength={6} />
+          </div>
+          <div className="field">
+            <label>{t(lang, 'confirmNewPassword')}</label>
+            <input type="password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} required minLength={6} />
+          </div>
+          {passwordMessage && <p className="hint">{passwordMessage}</p>}
+          <button className="btn btn-primary" type="submit" disabled={passwordSaving}>{t(lang, 'save')}</button>
+        </form>
+      </Card>
     </div>
   );
 }
@@ -3399,8 +4334,11 @@ function App() {
 
   // H13.2 — contagem de não lidas para o badge do sino no drawer; refeita ao
   // logar e sempre que a tela de Notificações reporta uma mudança.
+  // Backlog v2 / H20.2 — com notificações silenciadas (Configurações), as
+  // notificações continuam sendo geradas no banco (as 3 triggers de H13.2
+  // seguem intactas) — só o badge/"novas" somem no cliente até reativar.
   const refreshUnreadCount = React.useCallback(() => {
-    if (user) TrippinAPI.countUnreadNotifications(user.id).then(setUnreadCount);
+    if (user) TrippinAPI.countUnreadNotifications(user.id).then(n => setUnreadCount(getNotificationsMuted() ? 0 : n));
   }, [user && user.id]);
   useEffect(() => { refreshUnreadCount(); }, [user && user.id]);
 
@@ -3478,7 +4416,7 @@ function App() {
         <PrivacyDataScreen lang={lang} user={user} />
       )}
       {screen === 'settings' && (
-        <PlaceholderScreen lang={lang} title={titles[screen]} />
+        <SettingsScreen lang={lang} onNotificationsMutedChange={refreshUnreadCount} />
       )}
 
       <Drawer open={drawerOpen} onClose={() => setDrawerOpen(false)} lang={lang} onLogout={handleLogout}
