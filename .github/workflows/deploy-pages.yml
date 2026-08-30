@@ -3,11 +3,16 @@ name: Deploy web app to GitHub Pages
 # Decisão de tecnologia #2 (00-visao-de-negocio-final.md §10): deploy automático
 # por git push via GitHub Actions, sem operação de servidor. O app é o arquivo
 # único em web/ (decisão #1) — nada para buildar, só publicar.
+#
+# H15.3 / decisão #10: antes de publicar, o job `test` roda validate-code.js
+# (sintaxe/chaves do JSX) + Playwright E2E (nenhuma tela quebra). `deploy`
+# só roda se `test` passar — um push com erro de sintaxe ou que quebre um
+# fluxo coberto nunca chega ao GitHub Pages.
 
 on:
   push:
     branches: [main]
-    paths: ["web/**", ".github/workflows/deploy-pages.yml"]
+    paths: ["web/**", ".github/workflows/deploy-pages.yml", "package.json", "package-lock.json", "validate-code.js", "playwright.config.js", "tests/**"]
   workflow_dispatch:
 
 permissions:
@@ -20,7 +25,30 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: node validate-code.js
+      - run: npx playwright install --with-deps chromium
+      - run: npx playwright test
+        env:
+          E2E_TEST_EMAIL: ${{ secrets.E2E_TEST_EMAIL }}
+          E2E_TEST_PASSWORD: ${{ secrets.E2E_TEST_PASSWORD }}
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7
+
   deploy:
+    needs: test
     runs-on: ubuntu-latest
     environment:
       name: github-pages

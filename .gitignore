@@ -12,3 +12,10 @@ supabase/.branches/
 # OS / editor
 .DS_Store
 Thumbs.db
+
+# H15.3 — suíte de qualidade (validate-code.js + Playwright)
+node_modules/
+test-results/
+playwright-report/
+blob-report/
+playwright/.cache/

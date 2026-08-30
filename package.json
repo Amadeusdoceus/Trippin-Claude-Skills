@@ -1,0 +1,15 @@
+{
+  "name": "trippin",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Trippin — app web de arquivo único (React 18 via CDN, sem bundler). package.json existe só para a suíte de qualidade do H15.3 (validate-code.js + Playwright), não para buildar o app.",
+  "scripts": {
+    "review": "node validate-code.js && playwright test",
+    "test:e2e": "playwright test"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.24.0",
+    "@babel/preset-react": "^7.24.0",
+    "@playwright/test": "^1.45.0"
+  }
+}
