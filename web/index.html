@@ -265,6 +265,7 @@ const I18N = {
     join: 'Entrar na viagem',
     invalidCode: 'Código inválido ou viagem não encontrada.',
     schedule: 'Cronograma',
+    expensesTab: 'Despesas',
     map: 'Mapa',
     docs: 'Docs',
     gallery: 'Galeria',
@@ -292,6 +293,39 @@ const I18N = {
     genericError: 'Não foi possível concluir. Tente novamente.',
     emailInUse: 'Já existe uma conta com este e-mail.',
     wrongCredentials: 'E-mail ou senha incorretos.',
+    statusPre: 'Pré-viagem',
+    statusActive: 'Em andamento',
+    statusDone: 'Concluída',
+    tripEnded: 'Esta viagem foi concluída — somente leitura.',
+    closeTrip: 'Encerrar viagem',
+    closeTripConfirm: 'Encerrar esta viagem agora? Ninguém poderá mais editar cronograma, despesas ou integrantes.',
+    today: 'Hoje',
+    addEvent: 'Adicionar evento',
+    editEvent: 'Editar evento',
+    eventTitle: 'Título',
+    location: 'Local',
+    startTime: 'Horário de início',
+    endTime: 'Horário de fim (opcional)',
+    notes: 'Notas',
+    participants: 'Participantes',
+    noEventsToday: 'Nenhum evento neste dia.',
+    conflictWarning: 'Conflita com outro evento neste horário.',
+    delete: 'Excluir',
+    deleteEventConfirm: 'Excluir este evento?',
+    addExpense: 'Adicionar despesa',
+    expenseDescription: 'Descrição',
+    amount: 'Valor',
+    currency: 'Moeda',
+    linkToEvent: 'Vincular a um evento (opcional)',
+    noEvent: 'Nenhum (despesa avulsa)',
+    paidBy: 'Quem pagou',
+    splitEqually: 'Dividido igualmente entre',
+    noExpensesYet: 'Nenhuma despesa registrada ainda.',
+    yourBalance: 'Seu saldo',
+    youAreOwed: (v, c) => `Te devem ${c} ${v}`,
+    youOwe: (v, c) => `Você deve ${c} ${v}`,
+    allSettled: 'Tudo quitado',
+    paidByLabel: (name) => `Pago por ${name}`,
   },
   'en-US': {
     appName: 'Trippin',
@@ -327,6 +361,7 @@ const I18N = {
     join: 'Join trip',
     invalidCode: 'Invalid code or trip not found.',
     schedule: 'Schedule',
+    expensesTab: 'Expenses',
     map: 'Map',
     docs: 'Docs',
     gallery: 'Gallery',
@@ -354,6 +389,39 @@ const I18N = {
     genericError: 'Could not complete. Please try again.',
     emailInUse: 'An account with this email already exists.',
     wrongCredentials: 'Wrong email or password.',
+    statusPre: 'Upcoming',
+    statusActive: 'In progress',
+    statusDone: 'Completed',
+    tripEnded: 'This trip has ended — read-only.',
+    closeTrip: 'End trip',
+    closeTripConfirm: 'End this trip now? No one will be able to edit the schedule, expenses, or members anymore.',
+    today: 'Today',
+    addEvent: 'Add event',
+    editEvent: 'Edit event',
+    eventTitle: 'Title',
+    location: 'Location',
+    startTime: 'Start time',
+    endTime: 'End time (optional)',
+    notes: 'Notes',
+    participants: 'Participants',
+    noEventsToday: 'No events on this day.',
+    conflictWarning: 'Conflicts with another event at this time.',
+    delete: 'Delete',
+    deleteEventConfirm: 'Delete this event?',
+    addExpense: 'Add expense',
+    expenseDescription: 'Description',
+    amount: 'Amount',
+    currency: 'Currency',
+    linkToEvent: 'Link to an event (optional)',
+    noEvent: 'None (standalone expense)',
+    paidBy: 'Paid by',
+    splitEqually: 'Split equally among',
+    noExpensesYet: 'No expenses recorded yet.',
+    yourBalance: 'Your balance',
+    youAreOwed: (v, c) => `You are owed ${c} ${v}`,
+    youOwe: (v, c) => `You owe ${c} ${v}`,
+    allSettled: 'All settled',
+    paidByLabel: (name) => `Paid by ${name}`,
   },
 };
 // Demais 8 idiomas do roadmap ficam como stub — caem em EN-US como fallback (decisão #11).
@@ -394,6 +462,62 @@ function mapTrip(row) {
     id: row.id, code: row.code, name: row.name,
     startDate: row.start_date, endDate: row.end_date,
     destinations: row.destinations || [], createdBy: row.created_by, createdAt: row.created_at,
+    closedAt: row.closed_at || null,
+  };
+}
+
+// E5 / H5.2 — pré-viagem / ativa / concluída. N dias de "graça" após o fim é
+// um parâmetro a calibrar (00-F §6 chama isso de "parâmetro a calibrar");
+// 3 dias é o valor assumido até haver dado real para ajustar.
+const TRIP_CLOSE_GRACE_DAYS = 3;
+function computeTripStatus(trip) {
+  if (trip.closedAt) return 'concluida';
+  const now = new Date();
+  const start = new Date(trip.startDate + 'T00:00:00');
+  const graceEnd = new Date(trip.endDate + 'T23:59:59');
+  graceEnd.setDate(graceEnd.getDate() + TRIP_CLOSE_GRACE_DAYS);
+  if (now < start) return 'pre';
+  if (now <= graceEnd) return 'ativa';
+  return 'concluida';
+}
+// `Date#toISOString()` é sempre UTC — usá-lo para "qual é a data de hoje" dá
+// o dia errado para qualquer fuso atrás de UTC durante a noite (ex.: Brasil,
+// UTC-3, qualquer horário depois das ~21h vira "amanhã" em UTC). Formata
+// sempre pelos componentes locais da data.
+function toLocalDateIso(date) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+function todayIsoWithinRange(trip) {
+  const today = toLocalDateIso(new Date());
+  if (today < trip.startDate) return trip.startDate;
+  if (today > trip.endDate) return trip.endDate;
+  return today;
+}
+function mapEvent(row) {
+  if (!row) return null;
+  return {
+    id: row.id, tripId: row.trip_id, title: row.title, location: row.location,
+    startsAt: row.starts_at, endsAt: row.ends_at, notes: row.notes, createdBy: row.created_by,
+  };
+}
+
+// H6.5 — conflito de horário entre dois eventos do mesmo dia.
+function eventsOverlap(a, b) {
+  const aStart = new Date(a.startsAt).getTime();
+  const aEnd = a.endsAt ? new Date(a.endsAt).getTime() : aStart;
+  const bStart = new Date(b.startsAt).getTime();
+  const bEnd = b.endsAt ? new Date(b.endsAt).getTime() : bStart;
+  return aStart < bEnd && bStart < aEnd;
+}
+function mapExpense(row) {
+  if (!row) return null;
+  return {
+    id: row.id, tripId: row.trip_id, eventId: row.event_id, description: row.description,
+    amount: Number(row.amount), currency: row.currency, splitMethod: row.split_method,
+    paidBy: row.paid_by, createdAt: row.created_at,
   };
 }
 
@@ -578,9 +702,119 @@ const RawTrippinAPI = {
   async addAuditEntry(tripId, userId, message) {
     await supabaseClient.from('audit_log').insert({ trip_id: tripId, user_id: userId, message });
   },
+
+  // ---- H5.2 Encerrar viagem manualmente (Admin) ----
+  async closeTrip(tripId, userId) {
+    const { error } = await supabaseClient.from('trips').update({ closed_at: new Date().toISOString() }).eq('id', tripId);
+    if (error) throw new Error('FORBIDDEN');
+    await this.addAuditEntry(tripId, userId, 'encerrou a viagem');
+  },
+
+  // ---- H6.1/H6.2/H6.6 Cronograma — CRUD de evento (visão diária) ----
+  async listEventsForDay(tripId, dayIso) {
+    const startOfDay = dayIso + 'T00:00:00';
+    const endOfDay = dayIso + 'T23:59:59.999';
+    const [eventsRes, participantsRes] = await Promise.all([
+      supabaseClient.from('schedule_events').select('*')
+        .eq('trip_id', tripId).gte('starts_at', startOfDay).lte('starts_at', endOfDay)
+        .order('starts_at', { ascending: true }),
+      supabaseClient.from('event_participants').select('event_id, user_id'),
+    ]);
+    if (eventsRes.error) throw eventsRes.error;
+    const events = (eventsRes.data || []).map(mapEvent);
+    const participantsByEvent = new Map();
+    (participantsRes.data || []).forEach(p => {
+      if (!events.some(e => e.id === p.event_id)) return; // só dos eventos deste dia
+      if (!participantsByEvent.has(p.event_id)) participantsByEvent.set(p.event_id, []);
+      participantsByEvent.get(p.event_id).push(p.user_id);
+    });
+    return events.map(e => ({ ...e, participantIds: participantsByEvent.get(e.id) || [] }));
+  },
+
+  async createEvent({ tripId, title, location, startsAt, endsAt, notes, userId, participantIds }) {
+    const { data, error } = await supabaseClient.from('schedule_events')
+      .insert({ trip_id: tripId, title, location: location || '', starts_at: startsAt, ends_at: endsAt || null, notes: notes || '', created_by: userId })
+      .select().single();
+    if (error) throw error;
+    if (participantIds && participantIds.length) {
+      await supabaseClient.from('event_participants')
+        .insert(participantIds.map(uid => ({ event_id: data.id, user_id: uid })));
+    }
+    return mapEvent(data);
+  },
+
+  async updateEvent(eventId, patch, participantIds) {
+    const dbPatch = {};
+    if ('title' in patch) dbPatch.title = patch.title;
+    if ('location' in patch) dbPatch.location = patch.location;
+    if ('startsAt' in patch) dbPatch.starts_at = patch.startsAt;
+    if ('endsAt' in patch) dbPatch.ends_at = patch.endsAt;
+    if ('notes' in patch) dbPatch.notes = patch.notes;
+    const { error } = await supabaseClient.from('schedule_events').update(dbPatch).eq('id', eventId);
+    if (error) throw error;
+    if (participantIds) {
+      await supabaseClient.from('event_participants').delete().eq('event_id', eventId);
+      if (participantIds.length) {
+        await supabaseClient.from('event_participants')
+          .insert(participantIds.map(uid => ({ event_id: eventId, user_id: uid })));
+      }
+    }
+  },
+
+  async deleteEvent(eventId) {
+    const { error } = await supabaseClient.from('schedule_events').delete().eq('id', eventId);
+    if (error) throw error;
+  },
+
+  // ---- H7.1-H7.4 Despesas — multi-moeda, divisão igual, saldo ----
+  async listExpenses(tripId) {
+    const [expensesRes, sharesRes] = await Promise.all([
+      supabaseClient.from('expenses').select('*').eq('trip_id', tripId).order('created_at', { ascending: false }),
+      supabaseClient.from('expense_shares').select('*'),
+    ]);
+    if (expensesRes.error) throw expensesRes.error;
+    const expenses = (expensesRes.data || []).map(mapExpense);
+    const expenseIds = new Set(expenses.map(e => e.id));
+    const sharesByExpense = new Map();
+    (sharesRes.data || []).forEach(s => {
+      if (!expenseIds.has(s.expense_id)) return;
+      if (!sharesByExpense.has(s.expense_id)) sharesByExpense.set(s.expense_id, []);
+      sharesByExpense.get(s.expense_id).push({ userId: s.user_id, shareAmount: Number(s.share_amount), settled: s.settled });
+    });
+    return expenses.map(e => ({ ...e, shares: sharesByExpense.get(e.id) || [] }));
+  },
+
+  async createExpense({ tripId, eventId, description, amount, currency, paidBy, participantUserIds }) {
+    const { data, error } = await supabaseClient.from('expenses')
+      .insert({ trip_id: tripId, event_id: eventId || null, description, amount, currency, split_method: 'equal', paid_by: paidBy })
+      .select().single();
+    if (error) throw error;
+    const perShare = Math.round((amount / participantUserIds.length) * 100) / 100;
+    await supabaseClient.from('expense_shares').insert(
+      participantUserIds.map(uid => ({ expense_id: data.id, user_id: uid, share_amount: perShare }))
+    );
+    return mapExpense(data);
+  },
 };
 
 const TrippinAPI = withErrorLogging(RawTrippinAPI);
+
+// Saldo do usuário atual por moeda: quanto pagou menos quanto era sua parte.
+// Positivo = "te devem"; negativo = "você deve". Sem conversão entre moedas
+// (decisão confirmada em 2026-08-28) — cada moeda tem seu próprio saldo.
+// Fica fora de TrippinAPI de propósito: é uma função pura e síncrona — se
+// estivesse dentro do objeto, o wrapper de log de erros (withErrorLogging)
+// a transformaria em assíncrona sem querer, junto com todo o resto da API.
+function computeBalancesForUser(expenses, userId) {
+  const balances = {};
+  expenses.forEach(e => {
+    balances[e.currency] = balances[e.currency] || 0;
+    if (e.paidBy === userId) balances[e.currency] += e.amount;
+    const myShare = e.shares.find(s => s.userId === userId);
+    if (myShare) balances[e.currency] -= myShare.shareAmount;
+  });
+  return balances;
+}
 
 /* =========================================================================
    Componentes base reutilizáveis (E1 / H1.2)
@@ -802,9 +1036,8 @@ function HomeScreen({ lang, user, onOpenTrip, onGoCreate, onGoJoin }) {
     return <div className="screen"><p className="hint">{lang === 'pt-BR' ? 'Carregando…' : 'Loading…'}</p></div>;
   }
 
-  const now = new Date();
-  const active = trips.filter(tr => new Date(tr.endDate) >= now);
-  const past = trips.filter(tr => new Date(tr.endDate) < now);
+  const active = trips.filter(tr => computeTripStatus(tr) !== 'concluida');
+  const past = trips.filter(tr => computeTripStatus(tr) === 'concluida');
 
   return (
     <div className="screen">
@@ -816,15 +1049,18 @@ function HomeScreen({ lang, user, onOpenTrip, onGoCreate, onGoJoin }) {
 
       {active.length === 0
         ? <EmptyState title={t(lang, 'noTripsYet')} />
-        : active.map(tr => (
-            <div key={tr.id} onClick={() => onOpenTrip(tr.id)} style={{ cursor: 'pointer' }}>
-              <Card>
-                <h3>{tr.name}</h3>
-                <p>{tr.startDate} → {tr.endDate}</p>
-                <p>{t(lang, 'countdownDays', daysUntil(tr.startDate))}</p>
-              </Card>
-            </div>
-          ))
+        : active.map(tr => {
+            const status = computeTripStatus(tr);
+            return (
+              <div key={tr.id} onClick={() => onOpenTrip(tr.id)} style={{ cursor: 'pointer' }}>
+                <Card>
+                  <h3>{tr.name}</h3>
+                  <p>{tr.startDate} → {tr.endDate}</p>
+                  <p>{status === 'pre' ? t(lang, 'countdownDays', daysUntil(tr.startDate)) : t(lang, 'statusActive')}</p>
+                </Card>
+              </div>
+            );
+          })
       }
 
       {past.length > 0 && (
@@ -963,9 +1199,360 @@ function JoinTripScreen({ lang, user, onJoined, onCancel }) {
 }
 
 /* =========================================================================
+   Telas — Viagem: Cronograma (E6-mín / H6.1, H6.2, H6.6)
+   ========================================================================= */
+function EventFormSheet({ lang, open, onClose, trip, dayIso, members, editingEvent, onSaved, userId, readOnly }) {
+  const [title, setTitle] = useState('');
+  const [location, setLocation] = useState('');
+  const [startTime, setStartTime] = useState('');
+  const [endTime, setEndTime] = useState('');
+  const [notes, setNotes] = useState('');
+  const [participantIds, setParticipantIds] = useState([]);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (editingEvent) {
+      setTitle(editingEvent.title);
+      setLocation(editingEvent.location || '');
+      setStartTime(editingEvent.startsAt.slice(11, 16));
+      setEndTime(editingEvent.endsAt ? editingEvent.endsAt.slice(11, 16) : '');
+      setNotes(editingEvent.notes || '');
+      setParticipantIds(editingEvent.participantIds || []);
+    } else {
+      setTitle(''); setLocation(''); setStartTime(''); setEndTime(''); setNotes(''); setParticipantIds([]);
+    }
+  }, [editingEvent, open]);
+
+  function toggleParticipant(uid) {
+    setParticipantIds(prev => prev.includes(uid) ? prev.filter(x => x !== uid) : [...prev, uid]);
+  }
+
+  async function submit(e) {
+    e.preventDefault();
+    setSaving(true);
+    try {
+      const startsAt = `${dayIso}T${startTime}:00`;
+      const endsAt = endTime ? `${dayIso}T${endTime}:00` : null;
+      if (editingEvent) {
+        await TrippinAPI.updateEvent(editingEvent.id, { title, location, startsAt, endsAt, notes }, participantIds);
+      } else {
+        await TrippinAPI.createEvent({ tripId: trip.id, title, location, startsAt, endsAt, notes, userId, participantIds });
+      }
+      onSaved();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function remove() {
+    await TrippinAPI.deleteEvent(editingEvent.id);
+    onSaved();
+  }
+
+  return (
+    <BottomSheet open={open} onClose={onClose}>
+      <h3>{editingEvent ? t(lang, 'editEvent') : t(lang, 'addEvent')}</h3>
+      <form onSubmit={submit}>
+        <div className="field">
+          <label>{t(lang, 'eventTitle')}</label>
+          <input value={title} onChange={e => setTitle(e.target.value)} required disabled={readOnly} />
+        </div>
+        <div className="field">
+          <label>{t(lang, 'location')}</label>
+          <input value={location} onChange={e => setLocation(e.target.value)} disabled={readOnly} />
+        </div>
+        <div className="btn-block-row">
+          <div className="field" style={{ flex: 1 }}>
+            <label>{t(lang, 'startTime')}</label>
+            <input type="time" value={startTime} onChange={e => setStartTime(e.target.value)} required disabled={readOnly} />
+          </div>
+          <div className="field" style={{ flex: 1 }}>
+            <label>{t(lang, 'endTime')}</label>
+            <input type="time" value={endTime} onChange={e => setEndTime(e.target.value)} disabled={readOnly} />
+          </div>
+        </div>
+        <div className="field">
+          <label>{t(lang, 'notes')}</label>
+          <input value={notes} onChange={e => setNotes(e.target.value)} disabled={readOnly} />
+        </div>
+        <div className="field">
+          <label>{t(lang, 'participants')}</label>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+            {members.map(m => (
+              <span key={m.userId}
+                className={'badge ' + (participantIds.includes(m.userId) ? 'badge-admin' : 'badge-convidado')}
+                style={{ cursor: readOnly ? 'default' : 'pointer' }}
+                onClick={() => !readOnly && toggleParticipant(m.userId)}>
+                {m.name}
+              </span>
+            ))}
+          </div>
+        </div>
+        {!readOnly && (
+          <div className="btn-block-row">
+            {editingEvent && <button type="button" className="btn btn-danger" onClick={remove}>{t(lang, 'delete')}</button>}
+            <button className="btn btn-primary" type="submit" disabled={saving}>{t(lang, 'save')}</button>
+          </div>
+        )}
+      </form>
+    </BottomSheet>
+  );
+}
+
+function ScheduleScreen({ lang, trip, members, userId, readOnly }) {
+  const [dayIso, setDayIso] = useState(() => todayIsoWithinRange(trip));
+  const [events, setEvents] = useState(null);
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const [editingEvent, setEditingEvent] = useState(null);
+  const [reloadKey, setReloadKey] = useState(0);
+
+  useEffect(() => {
+    let alive = true;
+    TrippinAPI.listEventsForDay(trip.id, dayIso).then(list => { if (alive) setEvents(list); });
+    return () => { alive = false; };
+  }, [trip.id, dayIso, reloadKey]);
+
+  function shiftDay(delta) {
+    const d = new Date(dayIso + 'T00:00:00');
+    d.setDate(d.getDate() + delta);
+    const iso = toLocalDateIso(d);
+    if (iso < trip.startDate || iso > trip.endDate) return;
+    setDayIso(iso);
+  }
+
+  function openNew() { setEditingEvent(null); setSheetOpen(true); }
+  function openEdit(ev) { setEditingEvent(ev); setSheetOpen(true); }
+  function onSaved() { setSheetOpen(false); setReloadKey(k => k + 1); }
+
+  const isToday = dayIso === toLocalDateIso(new Date());
+  const dayLabel = new Date(dayIso + 'T00:00:00')
+    .toLocaleDateString(lang, { weekday: 'short', day: '2-digit', month: '2-digit' });
+
+  return (
+    <div>
+      <div className="row-between" style={{ marginBottom: 12 }}>
+        <button className="icon-btn" onClick={() => shiftDay(-1)} disabled={dayIso <= trip.startDate}>←</button>
+        <strong>{isToday ? t(lang, 'today') + ' · ' : ''}{dayLabel}</strong>
+        <button className="icon-btn" onClick={() => shiftDay(1)} disabled={dayIso >= trip.endDate}>→</button>
+      </div>
+
+      {!readOnly && (
+        <button className="btn btn-primary" style={{ marginBottom: 12 }} onClick={openNew}>{t(lang, 'addEvent')}</button>
+      )}
+
+      {events === null ? (
+        <p className="hint">{lang === 'pt-BR' ? 'Carregando…' : 'Loading…'}</p>
+      ) : events.length === 0 ? (
+        <EmptyState title={t(lang, 'noEventsToday')} />
+      ) : events.map(ev => {
+        const hasConflict = events.some(other => other.id !== ev.id && eventsOverlap(ev, other));
+        return (
+          <div key={ev.id} onClick={() => openEdit(ev)} style={{ cursor: 'pointer' }}>
+            <Card>
+              <div className="row-between">
+                <div>
+                  <h3>{ev.startsAt.slice(11, 16)} — {ev.title}</h3>
+                  {ev.location && <p>{ev.location}</p>}
+                </div>
+                {hasConflict && (
+                  <span className="badge" style={{ background: 'var(--color-conflict)', color: '#211D1A' }} title={t(lang, 'conflictWarning')}>!</span>
+                )}
+              </div>
+            </Card>
+          </div>
+        );
+      })}
+
+      <EventFormSheet lang={lang} open={sheetOpen} onClose={() => setSheetOpen(false)} trip={trip} dayIso={dayIso}
+        members={members} editingEvent={editingEvent} onSaved={onSaved} userId={userId} readOnly={readOnly} />
+    </div>
+  );
+}
+
+/* =========================================================================
+   Telas — Viagem: Despesas (E7-mín / H7.1-H7.4)
+   ========================================================================= */
+function ExpenseFormSheet({ lang, open, onClose, trip, members, events, userId, onSaved, readOnly }) {
+  const [description, setDescription] = useState('');
+  const [amount, setAmount] = useState('');
+  const [currency, setCurrency] = useState('BRL');
+  const [eventId, setEventId] = useState('');
+  const [paidBy, setPaidBy] = useState(userId);
+  const [participantIds, setParticipantIds] = useState([]);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    setDescription(''); setAmount(''); setCurrency('BRL'); setEventId(''); setPaidBy(userId);
+    setParticipantIds([]);
+  }, [open, userId]);
+
+  function onPickEvent(id) {
+    setEventId(id);
+    const ev = events.find(e => String(e.id) === String(id));
+    setParticipantIds(ev ? ev.participantIds : []);
+  }
+
+  function toggleParticipant(uid) {
+    setParticipantIds(prev => prev.includes(uid) ? prev.filter(x => x !== uid) : [...prev, uid]);
+  }
+
+  async function submit(e) {
+    e.preventDefault();
+    if (participantIds.length === 0) return;
+    setSaving(true);
+    try {
+      await TrippinAPI.createExpense({
+        tripId: trip.id, eventId: eventId || null, description,
+        amount: Number(amount), currency, paidBy, participantUserIds: participantIds,
+      });
+      onSaved();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <BottomSheet open={open} onClose={onClose}>
+      <h3>{t(lang, 'addExpense')}</h3>
+      <form onSubmit={submit}>
+        <div className="field">
+          <label>{t(lang, 'expenseDescription')}</label>
+          <input value={description} onChange={e => setDescription(e.target.value)} required />
+        </div>
+        <div className="btn-block-row">
+          <div className="field" style={{ flex: 2 }}>
+            <label>{t(lang, 'amount')}</label>
+            <input type="number" step="0.01" min="0.01" value={amount} onChange={e => setAmount(e.target.value)} required />
+          </div>
+          <div className="field" style={{ flex: 1 }}>
+            <label>{t(lang, 'currency')}</label>
+            <select value={currency} onChange={e => setCurrency(e.target.value)}>
+              <option value="BRL">BRL</option>
+              <option value="USD">USD</option>
+              <option value="EUR">EUR</option>
+            </select>
+          </div>
+        </div>
+        <div className="field">
+          <label>{t(lang, 'linkToEvent')}</label>
+          <select value={eventId} onChange={e => onPickEvent(e.target.value)}>
+            <option value="">{t(lang, 'noEvent')}</option>
+            {events.map(ev => (
+              <option key={ev.id} value={ev.id}>{ev.startsAt.slice(11, 16)} — {ev.title}</option>
+            ))}
+          </select>
+        </div>
+        <div className="field">
+          <label>{t(lang, 'paidBy')}</label>
+          <select value={paidBy} onChange={e => setPaidBy(e.target.value)}>
+            {members.map(m => <option key={m.userId} value={m.userId}>{m.name}</option>)}
+          </select>
+        </div>
+        <div className="field">
+          <label>{t(lang, 'splitEqually')}</label>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+            {members.map(m => (
+              <span key={m.userId}
+                className={'badge ' + (participantIds.includes(m.userId) ? 'badge-admin' : 'badge-convidado')}
+                style={{ cursor: 'pointer' }} onClick={() => toggleParticipant(m.userId)}>
+                {m.name}
+              </span>
+            ))}
+          </div>
+        </div>
+        <button className="btn btn-primary" type="submit" disabled={saving || participantIds.length === 0}>{t(lang, 'save')}</button>
+      </form>
+    </BottomSheet>
+  );
+}
+
+function ExpensesScreen({ lang, trip, members, userId, readOnly }) {
+  const [expenses, setExpenses] = useState(null);
+  const [events, setEvents] = useState([]);
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
+
+  useEffect(() => {
+    let alive = true;
+    TrippinAPI.listExpenses(trip.id).then(list => { if (alive) setExpenses(list); });
+    return () => { alive = false; };
+  }, [trip.id, reloadKey]);
+
+  // Eventos de toda a viagem, para o seletor "vincular a um evento" — busca
+  // dia a dia dentro do intervalo seria caro; para o MVP o número de dias de
+  // uma viagem é pequeno o bastante para varrer de uma vez.
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      const days = [];
+      let d = trip.startDate;
+      while (d <= trip.endDate && days.length < 60) {
+        days.push(d);
+        const next = new Date(d + 'T00:00:00'); next.setDate(next.getDate() + 1);
+        d = toLocalDateIso(next);
+      }
+      const results = await Promise.all(days.map(day => TrippinAPI.listEventsForDay(trip.id, day)));
+      if (alive) setEvents(results.flat());
+    })();
+    return () => { alive = false; };
+  }, [trip.id, trip.startDate, trip.endDate]);
+
+  function memberName(userId) {
+    const m = members.find(mm => mm.userId === userId);
+    return m ? m.name : userId;
+  }
+
+  const balances = expenses ? computeBalancesForUser(expenses, userId) : {};
+  const balanceCurrencies = Object.keys(balances).filter(c => Math.abs(balances[c]) > 0.005);
+
+  return (
+    <div>
+      {!readOnly && (
+        <button className="btn btn-primary" style={{ marginBottom: 12 }} onClick={() => setSheetOpen(true)}>
+          {t(lang, 'addExpense')}
+        </button>
+      )}
+
+      <Card>
+        <h3>{t(lang, 'yourBalance')}</h3>
+        {balanceCurrencies.length === 0
+          ? <p className="hint">{t(lang, 'allSettled')}</p>
+          : balanceCurrencies.map(c => (
+              <p key={c} style={{ margin: '4px 0', color: balances[c] >= 0 ? 'var(--color-secondary)' : 'var(--color-danger)' }}>
+                {balances[c] >= 0 ? t(lang, 'youAreOwed', balances[c].toFixed(2), c) : t(lang, 'youOwe', Math.abs(balances[c]).toFixed(2), c)}
+              </p>
+            ))
+        }
+      </Card>
+
+      {expenses === null ? (
+        <p className="hint">{lang === 'pt-BR' ? 'Carregando…' : 'Loading…'}</p>
+      ) : expenses.length === 0 ? (
+        <EmptyState title={t(lang, 'noExpensesYet')} />
+      ) : expenses.map(exp => (
+        <Card key={exp.id}>
+          <div className="row-between">
+            <div>
+              <h3>{exp.description}</h3>
+              <p>{t(lang, 'paidByLabel', memberName(exp.paidBy))}</p>
+            </div>
+            <strong>{exp.currency} {exp.amount.toFixed(2)}</strong>
+          </div>
+        </Card>
+      ))}
+
+      <ExpenseFormSheet lang={lang} open={sheetOpen} onClose={() => setSheetOpen(false)} trip={trip}
+        members={members} events={events} userId={userId}
+        onSaved={() => { setSheetOpen(false); setReloadKey(k => k + 1); }} readOnly={readOnly} />
+    </div>
+  );
+}
+
+/* =========================================================================
    Telas — Viagem (E4 Integrantes; demais abas ficam "em breve" até suas fases)
    ========================================================================= */
-function MembersScreen({ lang, tripId, tripCode, members, auditLog, myRole, currentUserId, onChanged }) {
+function MembersScreen({ lang, tripId, tripCode, members, auditLog, myRole, currentUserId, onChanged, readOnly }) {
   const [sheetTarget, setSheetTarget] = useState(null);
   const [inviteOpen, setInviteOpen] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -988,11 +1575,24 @@ function MembersScreen({ lang, tripId, tripCode, members, auditLog, myRole, curr
     setTimeout(() => setCopied(false), 1500);
   }
 
+  async function closeTrip() {
+    if (!window.confirm(t(lang, 'closeTripConfirm'))) return;
+    await TrippinAPI.closeTrip(tripId, currentUserId);
+    onChanged();
+  }
+
   return (
     <div>
-      <button className="btn btn-primary" style={{ marginBottom: 12 }} onClick={() => setInviteOpen(true)}>
-        {t(lang, 'inviteMembers')}
-      </button>
+      {!readOnly && (
+        <div className="btn-block-row" style={{ marginBottom: 12 }}>
+          <button className="btn btn-primary" onClick={() => setInviteOpen(true)}>
+            {t(lang, 'inviteMembers')}
+          </button>
+          {myRole === 'admin' && (
+            <button className="btn btn-danger" onClick={closeTrip}>{t(lang, 'closeTrip')}</button>
+          )}
+        </div>
+      )}
 
       {members.map(m => (
         <Card key={m.userId}>
@@ -1002,7 +1602,7 @@ function MembersScreen({ lang, tripId, tripCode, members, auditLog, myRole, curr
               <RoleBadge role={m.role} lang={lang} />
             </div>
             {/* Convidado nunca vê ações de edição — a ação simplesmente não é renderizada (02-UXUI-spec.md §5) */}
-            {myRole === 'admin' && m.role !== 'admin' && (
+            {!readOnly && myRole === 'admin' && m.role !== 'admin' && (
               <button className="btn btn-secondary" style={{ width: 'auto' }} onClick={() => setSheetTarget(m)}>
                 ⋯
               </button>
@@ -1071,9 +1671,13 @@ function TripScreen({ lang, tripId, user }) {
   if (!data.trip) return <div className="screen"><EmptyState title={t(lang, 'invalidCode')} /></div>;
 
   const myRole = (data.members.find(m => m.userId === user.id) || {}).role || null;
+  const status = computeTripStatus(data.trip); // H5.2: 'pre' | 'ativa' | 'concluida'
+  const readOnly = status === 'concluida'; // H5.4
+  const onChanged = () => setReloadKey(k => k + 1);
 
   const tabs = [
     { key: 'schedule', label: t(lang, 'schedule') },
+    { key: 'expenses', label: t(lang, 'expensesTab') },
     { key: 'map', label: t(lang, 'map') },
     { key: 'docs', label: t(lang, 'docs') },
     { key: 'gallery', label: t(lang, 'gallery') },
@@ -1083,13 +1687,26 @@ function TripScreen({ lang, tripId, user }) {
 
   return (
     <div className="screen">
-      <h2>{data.trip.name}</h2>
+      <div className="row-between">
+        <h2>{data.trip.name}</h2>
+        <span className="badge badge-convidado">{t(lang, status === 'pre' ? 'statusPre' : status === 'ativa' ? 'statusActive' : 'statusDone')}</span>
+      </div>
+      {readOnly && <div className="hint" style={{ marginBottom: 12 }}>{t(lang, 'tripEnded')}</div>}
       <SegmentedTabs tabs={tabs} active={activeTab} onChange={setActiveTab} />
-      {activeTab === 'members'
-        ? <MembersScreen lang={lang} tripId={tripId} tripCode={data.trip.code} members={data.members}
-            auditLog={data.auditLog} myRole={myRole} currentUserId={user.id}
-            onChanged={() => setReloadKey(k => k + 1)} />
-        : <EmptyState title={t(lang, 'comingSoon')} />}
+      {activeTab === 'schedule' && (
+        <ScheduleScreen lang={lang} trip={data.trip} members={data.members} userId={user.id} readOnly={readOnly} />
+      )}
+      {activeTab === 'expenses' && (
+        <ExpensesScreen lang={lang} trip={data.trip} members={data.members} userId={user.id} readOnly={readOnly} />
+      )}
+      {activeTab === 'members' && (
+        <MembersScreen lang={lang} tripId={tripId} tripCode={data.trip.code} members={data.members}
+          auditLog={data.auditLog} myRole={myRole} currentUserId={user.id}
+          onChanged={onChanged} readOnly={readOnly} />
+      )}
+      {['map', 'docs', 'gallery', 'suggestions'].includes(activeTab) && (
+        <EmptyState title={t(lang, 'comingSoon')} />
+      )}
     </div>
   );
 }

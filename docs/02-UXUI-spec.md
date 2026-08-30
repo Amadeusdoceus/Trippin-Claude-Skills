@@ -43,8 +43,14 @@ mobile. A IA usa dois níveis:
 **Nível 1 — bottom tab bar (mobile) / sidebar (telas largas):** Início · Viagem · Perfil.
 
 **Nível 2 — dentro de "Viagem":** faixa de abas horizontal (scrollável em mobile, fixa em telas
-largas) com os seis destinos: **Cronograma · Mapa · Docs · Galeria · Sugestões · Integrantes.**
-Cronograma é a aba padrão ao entrar.
+largas) com **sete** destinos: **Cronograma · Despesas · Mapa · Docs · Galeria · Sugestões ·
+Integrantes.** Cronograma é a aba padrão ao entrar.
+
+> **Correção (2026-08-30):** `00-F` §7 lista "Despesas" (item 9) como parte do MVP mas nunca a
+> associa a nenhuma navegação — nem às "seis abas" de "Viagem ativa" (item 4), nem à bottom tab bar.
+> Essa spec originalmente também esqueceu Despesas na contagem ("seis destinos"). Corrigido aqui: a
+> leitura mais coerente é que Despesas é mais uma aba de segundo nível dentro de "Viagem" (mesma
+> natureza de Cronograma — dado por viagem, não global como Perfil), não um destino de nível 1.
 
 **Drawer (menu lateral, ícone hambúrguer, qualquer tela):** Notificações, Configurações da conta,
 Privacidade e dados (seção 7), Sair — itens transversais que não pertencem a uma viagem específica

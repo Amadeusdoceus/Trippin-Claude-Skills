@@ -85,12 +85,16 @@
 
 - **H5.1 (mínimo)** Estado pré-viagem: contagem regressiva + checklist básica (convidar integrantes, montar cronograma).
   - Critério de aceite: contagem regressiva reflete `data_início` corretamente em qualquer fuso horário do dispositivo.
+  - **Status: feito** (ciclo 3 do status-report).
 - **H5.2** Transição automática pré-viagem → ativa → concluída, sem toggle manual, usando a definição operacional de "concluída" de `00-F` §6 (N dias após a data final, com override manual do organizador).
   - Critério de aceite: no primeiro dia dentro de `[data_início, data_fim]`, o painel troca de conteúdo sem exigir ação do usuário; a viagem entra em "concluída" automaticamente N dias após `data_fim` ou antes, se o organizador encerrar manualmente.
+  - **Status: feito em 2026-08-30.** N fixado em 3 dias (parâmetro a calibrar, `computeTripStatus` no código). Encerramento manual implementado como botão "Encerrar viagem" (Admin, aba Integrantes), gravando `trips.closed_at`.
 - **H5.3** Estado ativo: cartão "Hoje na viagem" como destaque da aba Cronograma.
   - Critério de aceite: eventos do dia atual aparecem em ordem cronológica; se não houver evento no dia, mostra estado vazio próprio.
+  - **Status: feito em 2026-08-30.** Implementado como o próprio Cronograma abrindo no dia de hoje por padrão (H6.1), não como um card separado — mesmo comportamento, sem duplicar UI.
 - **H5.4** Estado concluída: acesso somente-leitura ao histórico da viagem.
   - Critério de aceite: nenhuma ação de criar/editar aparece em uma viagem concluída, em nenhuma aba.
+  - **Status: feito em 2026-08-30.** `readOnly` calculado uma vez em `TripScreen` e propagado a Cronograma, Despesas e Integrantes (convite/promoção/encerrar somem).
 
 ## E6 — Cronograma
 
@@ -98,35 +102,52 @@
 
 - **H6.1 (mínimo)** CRUD de evento com visão diária apenas (local, horário, notas).
   - Critério de aceite: criar, editar e excluir evento refletem imediatamente na visão diária e no cartão "Hoje" quando aplicável.
+  - **Status: feito em 2026-08-30.** Navegação dia a dia com setas, limitada ao intervalo da viagem.
 - **H6.2 (mínimo)** Painel de detalhe do evento em bottom sheet.
   - Critério de aceite: abrir o detalhe não perde a posição de rolagem da visão do dia ao fechar.
+  - **Status: feito em 2026-08-30.**
 - **H6.3 (completo)** Visões Semana e Mês.
   - Critério de aceite: alternar entre Dia/Semana/Mês mantém a data selecionada em foco.
+  - **Status: não iniciado** (fase D do backlog).
 - **H6.4 (completo)** Reordenar evento por arrastar dentro do mesmo dia.
   - Critério de aceite: long-press levanta o card com feedback tátil; soltar reordena com animação de spring, sem trava de duração fixa.
+  - **Status: não iniciado** (fase D).
 - **H6.5 (completo)** Indicador de conflito quando dois eventos se sobrepõem.
   - Critério de aceite: conflito aparece inline no card (marcação colorida), nunca como modal bloqueante; tocar mostra o que conflita.
+  - **Status: adiantado e feito em 2026-08-30**, junto com o mínimo — a checagem (`eventsOverlap`) já existia como necessidade natural do CRUD e não fazia sentido adiar.
 - **H6.6** Vincular participantes específicos a um evento.
   - Critério de aceite: lista de participantes do evento é usada depois para pré-preencher a divisão de uma despesa nascida desse evento (ver H7.1).
+  - **Status: feito em 2026-08-30.**
 
 ## E7 — Despesas
 
 *Deriva de `02-UXUI-spec.md` §2.*
 
+> **Correção de navegação (2026-08-30):** Despesas nunca tinha um lugar definido na IA — não estava
+> nem nas "seis abas" de `02-UXUI-spec.md` §1 nem na bottom tab bar. Corrigido como sétima aba
+> dentro de "Viagem" (ver `02-UXUI-spec.md` §1, nota de correção).
+
 - **H7.1 (mínimo)** Criar despesa vinculada a um evento, com divisão igual entre os participantes daquele evento.
   - Critério de aceite: participantes vêm pré-preenchidos do evento de origem (H6.6); usuário pode ajustar a lista antes de salvar.
+  - **Status: feito em 2026-08-30.**
 - **H7.2 (mínimo)** Criar despesa avulsa (sem evento de origem).
   - Critério de aceite: fluxo idêntico ao H7.1, exceto que a lista de participantes começa vazia.
+  - **Status: feito em 2026-08-30.**
 - **H7.3 (mínimo)** Saldo por participante ("você deve" / "te devem"), **agrupado por moeda**, e notificação ao integrante impactado por uma despesa nova.
   - Critério de aceite: saldo recalcula automaticamente a cada despesa criada, editada ou excluída, com um saldo independente por moeda (ex.: "você deve R$ 50 e US$ 20", sem somar as duas); integrante impactado recebe notificação (E14) ao ser adicionado a uma despesa.
+  - **Status: parcial.** Saldo por moeda calculado e exibido (verificado em teste real). A notificação em si depende de E13 (Notificações), que não existe — a parte de notificar continua pendente, registrada aqui e não escondida.
 - **H7.4 (mínimo)** Selecionar moeda por despesa (multi-moeda desde o MVP, confirmado com o stakeholder em 2026-08-28).
   - Critério de aceite: toda despesa tem um campo de moeda obrigatório; **não há conversão automática entre moedas** — despesas em moedas diferentes na mesma viagem nunca são somadas num único saldo.
+  - **Status: feito em 2026-08-30.** Seletor BRL/USD/EUR (lista curada; sem campo livre por ora).
 - **H7.5 (completo)** Métodos de divisão: partes customizadas e valor fixo (além de igual).
   - Critério de aceite: soma das partes customizadas é validada contra o valor total (na moeda daquela despesa) antes de permitir salvar.
+  - **Status: não iniciado** (fase D).
 - **H7.6 (completo)** Quitação manual entre dois participantes.
   - Critério de aceite: quitação é feita na mesma moeda do saldo que está sendo quitado, atualiza o saldo de ambos naquela moeda e aparece no histórico de auditoria (H4.5), sem mover dinheiro real.
+  - **Status: não iniciado** (fase D).
 - **H7.7 (completo)** Extrato consolidado ao final da viagem, separado por moeda.
   - Critério de aceite: extrato lista todas as despesas, por quem foram pagas e o saldo final de cada participante, com uma seção (ou totalizador) por moeda — nunca um total único somando moedas diferentes; disponível assim que a viagem entra em estado "concluída" (H5.4).
+  - **Status: não iniciado** (fase D) — a lista de despesas já existe e já respeita `readOnly`, mas não há uma tela de extrato dedicada ainda.
 
 ## E8 — Docs com inteligência (diferencial central, must-have)
 
