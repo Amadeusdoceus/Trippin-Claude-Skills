@@ -17,6 +17,11 @@
      OpenStreetMap. Leaflet é a lib padrão para renderizar tiles OSM sem build. -->
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<!-- E8 / decisão de tecnologia #7 (00-F §10): OCR NO CLIENTE, sem LLM. Baixado
+     sob demanda só quando o usuário abre a aba Docs (não pesa no carregamento
+     inicial do app) — o motor WASM + dados de idioma vêm do próprio CDN do
+     Tesseract.js quando Tesseract.recognize() é chamado pela primeira vez. -->
+<script src="https://unpkg.com/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -353,6 +358,16 @@ const I18N = {
     suggestionsIntro: 'Sugestões baseadas na sua própria viagem (sem dados de outros usuários).',
     freeTimeSuggestion: (start, end, dest) => `Vocês têm ${start}–${end} livres hoje — que tal aproveitar para conhecer ${dest}?`,
     noSuggestions: 'Sem sugestões para hoje — a agenda já está cheia ou não há destinos cadastrados.',
+    addDocument: 'Adicionar documento',
+    noDocumentsYet: 'Nenhum documento anexado ainda.',
+    readingDocument: 'Lendo documento…',
+    confirmExtraction: 'Confirmar dados do documento',
+    extractionEmptyHint: 'Não conseguimos ler este documento automaticamente — preencha os campos abaixo.',
+    linkedToEvent: 'Vinculado a um evento',
+    discardDocument: 'Descartar sem criar evento',
+    createEventFromDoc: 'Criar evento com estes dados',
+    docConflictWarning: 'O horário encontrado conflita com um evento existente nesse dia.',
+    viewDocument: 'Ver documento',
   },
   'en-US': {
     appName: 'Trippin',
@@ -472,6 +487,16 @@ const I18N = {
     suggestionsIntro: 'Suggestions based only on your own trip (no data from other users).',
     freeTimeSuggestion: (start, end, dest) => `You have ${start}–${end} free today — how about visiting ${dest}?`,
     noSuggestions: 'No suggestions for today — the schedule is full or no destinations are set.',
+    addDocument: 'Add document',
+    noDocumentsYet: 'No documents attached yet.',
+    readingDocument: 'Reading document…',
+    confirmExtraction: 'Confirm document details',
+    extractionEmptyHint: "We couldn't read this document automatically — fill in the fields below.",
+    linkedToEvent: 'Linked to an event',
+    discardDocument: 'Discard without creating an event',
+    createEventFromDoc: 'Create event with this data',
+    docConflictWarning: 'The time found conflicts with an existing event that day.',
+    viewDocument: 'View document',
   },
 };
 // Demais 8 idiomas do roadmap ficam como stub — caem em EN-US como fallback (decisão #11).
@@ -581,6 +606,65 @@ async function geocodePlace(query) {
     return null;
   }
 }
+// E8 / H8.2 — parser estruturado por padrões conhecidos, sem OCR/LLM em
+// servidor (decisão de tecnologia #7, 00-F §10). Cobre os formatos de data
+// mais comuns em comprovantes/passagens (numérico e por extenso, pt-BR/en-US)
+// e horário 24h. Qualquer coisa fora desses padrões cai no fallback H8.5 —
+// os campos ficam vazios, o usuário preenche na tela de confirmação (H8.3).
+const MONTHS_PT = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
+const MONTHS_EN = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december'];
+
+function parseDocumentText(text) {
+  const result = { date: null, time: null, title: '' };
+  if (!text) return result;
+
+  const numericDate = text.match(/\b(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})\b/);
+  if (numericDate) {
+    let [, d, m, y] = numericDate;
+    if (y.length === 2) y = '20' + y;
+    if (Number(m) <= 12 && Number(d) <= 31) {
+      result.date = `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
+    }
+  }
+  if (!result.date) {
+    const monthsPattern = MONTHS_PT.concat(MONTHS_EN).join('|');
+    const wordDate = text.toLowerCase().match(new RegExp(`\\b(\\d{1,2})\\s*(?:de\\s*)?(${monthsPattern})\\s*(?:de\\s*)?(\\d{4})\\b`));
+    if (wordDate) {
+      const [, d, monthName, y] = wordDate;
+      let mi = MONTHS_PT.indexOf(monthName);
+      if (mi === -1) mi = MONTHS_EN.indexOf(monthName);
+      if (mi !== -1) result.date = `${y}-${String(mi + 1).padStart(2, '0')}-${d.padStart(2, '0')}`;
+    }
+  }
+
+  const timeMatch = text.match(/\b([01]?\d|2[0-3]):([0-5]\d)\b/);
+  if (timeMatch) result.time = `${timeMatch[1].padStart(2, '0')}:${timeMatch[2]}`;
+
+  // Título: sem OCR/LLM não há como "entender" o documento — heurística
+  // simples, primeira linha substancial (layout típico de recibo/passagem).
+  const lines = text.split('\n').map(l => l.trim()).filter(l => l.length >= 4 && !/^\d+$/.test(l));
+  if (lines.length > 0) result.title = lines[0].slice(0, 80);
+
+  return result;
+}
+
+// OCR no cliente (Tesseract.js). PDFs e outros formatos não-imagem caem
+// direto no fallback H8.5 — OCR de PDF exigiria renderizar páginas antes
+// (ex.: pdf.js), fora do escopo desta versão; o upload em si (H8.1) continua
+// funcionando normalmente para qualquer tipo de arquivo.
+async function extractFromDocument(file) {
+  try {
+    if (!file.type || !file.type.startsWith('image/')) {
+      return { date: null, time: null, title: '' };
+    }
+    const { data } = await Tesseract.recognize(file, 'por+eng');
+    return parseDocumentText(data.text);
+  } catch (error) {
+    logClientError(error, { source: 'extractFromDocument' });
+    return { date: null, time: null, title: '' };
+  }
+}
+
 function mapExpense(row) {
   if (!row) return null;
   return {
@@ -940,6 +1024,50 @@ const RawTrippinAPI = {
   async deletePhoto(photoId, storagePath) {
     await supabaseClient.storage.from('trip-photos').remove([storagePath]);
     const { error } = await supabaseClient.from('trip_photos').delete().eq('id', photoId);
+    if (error) throw error;
+  },
+
+  // ---- H8.1 Docs — upload independe do resultado da extração ----
+  async uploadDocument(tripId, file, userId) {
+    const ext = (file.name.split('.').pop() || 'jpg').toLowerCase();
+    const filename = (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random().toString(36).slice(2));
+    const path = `${tripId}/${filename}.${ext}`;
+    const { error: uploadError } = await supabaseClient.storage.from('trip-documents').upload(path, file);
+    if (uploadError) throw uploadError;
+    const { data, error: insertError } = await supabaseClient.from('documents')
+      .insert({ trip_id: tripId, uploaded_by: userId, storage_path: path })
+      .select().single();
+    if (insertError) throw insertError;
+    return { id: data.id, tripId: data.trip_id, uploadedBy: data.uploaded_by, storagePath: data.storage_path, extractedEventId: data.extracted_event_id, uploadedAt: data.uploaded_at };
+  },
+
+  async listDocuments(tripId) {
+    const { data, error } = await supabaseClient.from('documents')
+      .select('*').eq('trip_id', tripId).order('uploaded_at', { ascending: false });
+    if (error) throw error;
+    return (data || []).map(row => ({
+      id: row.id, tripId: row.trip_id, uploadedBy: row.uploaded_by,
+      storagePath: row.storage_path, extractedEventId: row.extracted_event_id, uploadedAt: row.uploaded_at,
+    }));
+  },
+
+  async getDocumentSignedUrl(storagePath) {
+    const { data, error } = await supabaseClient.storage.from('trip-documents').createSignedUrl(storagePath, 3600);
+    if (error) throw error;
+    return data.signedUrl;
+  },
+
+  // H8.3 — liga o documento ao evento só depois da confirmação humana.
+  async linkDocumentToEvent(documentId, eventId) {
+    const { error } = await supabaseClient.from('documents').update({ extracted_event_id: eventId }).eq('id', documentId);
+    if (error) throw error;
+  },
+
+  // H14.2 — exclusão remove o arquivo e a referência; o evento já confirmado
+  // (se houver) permanece, exatamente como 00-F §13 documenta.
+  async deleteDocument(documentId, storagePath) {
+    await supabaseClient.storage.from('trip-documents').remove([storagePath]);
+    const { error } = await supabaseClient.from('documents').delete().eq('id', documentId);
     if (error) throw error;
   },
 };
@@ -1950,6 +2078,173 @@ function ExpensesScreen({ lang, trip, members, userId, readOnly }) {
 }
 
 /* =========================================================================
+   Telas — Viagem: Docs com inteligência (E8 / H8.1-H8.5, diferencial central)
+   ========================================================================= */
+function DocConfirmSheet({ lang, open, onClose, trip, userId, candidate, documentId, onDone }) {
+  const [title, setTitle] = useState('');
+  const [location, setLocation] = useState('');
+  const [date, setDate] = useState('');
+  const [time, setTime] = useState('');
+  const [notes, setNotes] = useState('');
+  const [dayEvents, setDayEvents] = useState([]);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    setTitle(candidate.title || '');
+    setLocation('');
+    setDate(candidate.date || '');
+    setTime(candidate.time || '');
+    setNotes('');
+  }, [open, candidate]);
+
+  // H8.4 — checa conflito assim que houver data suficiente para comparar,
+  // antes da confirmação (não depois de o evento já existir).
+  useEffect(() => {
+    if (!date) { setDayEvents([]); return; }
+    let alive = true;
+    TrippinAPI.listEventsForDay(trip.id, date).then(list => { if (alive) setDayEvents(list); });
+    return () => { alive = false; };
+  }, [trip.id, date]);
+
+  const candidateEvent = date && time ? { id: null, startsAt: `${date}T${time}:00`, endsAt: null } : null;
+  const hasConflict = candidateEvent && dayEvents.some(e => eventsOverlap(e, candidateEvent));
+  const isEmptyExtraction = !candidate.date && !candidate.time;
+
+  async function confirmCreate(e) {
+    e.preventDefault();
+    if (!date || !time || !title) return;
+    setSaving(true);
+    try {
+      const startsAt = `${date}T${time}:00`;
+      const event = await TrippinAPI.createEvent({
+        tripId: trip.id, title, location, startsAt, endsAt: null, notes,
+        userId, participantIds: [],
+      });
+      await TrippinAPI.linkDocumentToEvent(documentId, event.id);
+      onDone();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <BottomSheet open={open} onClose={onClose}>
+      <h3>{t(lang, 'confirmExtraction')}</h3>
+      {isEmptyExtraction && <p className="hint">{t(lang, 'extractionEmptyHint')}</p>}
+      <form onSubmit={confirmCreate}>
+        <div className="field">
+          <label>{t(lang, 'eventTitle')}</label>
+          <input value={title} onChange={e => setTitle(e.target.value)} required />
+        </div>
+        <div className="field">
+          <label>{t(lang, 'location')}</label>
+          <input value={location} onChange={e => setLocation(e.target.value)} />
+        </div>
+        <div className="btn-block-row">
+          <div className="field" style={{ flex: 1 }}>
+            <label>{t(lang, 'startDate')}</label>
+            <input type="date" value={date} onChange={e => setDate(e.target.value)} required
+              min={trip.startDate} max={trip.endDate} />
+          </div>
+          <div className="field" style={{ flex: 1 }}>
+            <label>{t(lang, 'startTime')}</label>
+            <input type="time" value={time} onChange={e => setTime(e.target.value)} required />
+          </div>
+        </div>
+        <div className="field">
+          <label>{t(lang, 'notes')}</label>
+          <input value={notes} onChange={e => setNotes(e.target.value)} />
+        </div>
+        {hasConflict && <div className="banner-error">{t(lang, 'docConflictWarning')}</div>}
+        <div className="btn-block-row">
+          <button type="button" className="btn btn-secondary" onClick={onClose}>{t(lang, 'discardDocument')}</button>
+          <button className="btn btn-primary" type="submit" disabled={saving}>{t(lang, 'createEventFromDoc')}</button>
+        </div>
+      </form>
+    </BottomSheet>
+  );
+}
+
+function DocsScreen({ lang, trip, members, userId, readOnly }) {
+  const [documents, setDocuments] = useState(null);
+  const [urls, setUrls] = useState({});
+  const [processing, setProcessing] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [candidate, setCandidate] = useState({ date: null, time: null, title: '' });
+  const [pendingDocId, setPendingDocId] = useState(null);
+  const [reloadKey, setReloadKey] = useState(0);
+  const fileInputRef = useRef(null);
+
+  useEffect(() => {
+    let alive = true;
+    TrippinAPI.listDocuments(trip.id).then(async list => {
+      if (!alive) return;
+      setDocuments(list);
+      const entries = await Promise.all(list.map(async d => [d.id, await TrippinAPI.getDocumentSignedUrl(d.storagePath)]));
+      if (alive) setUrls(Object.fromEntries(entries));
+    });
+    return () => { alive = false; };
+  }, [trip.id, reloadKey]);
+
+  async function onFileSelected(e) {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    setProcessing(true);
+    try {
+      // H8.1 — o upload acontece independente do resultado da extração.
+      const doc = await TrippinAPI.uploadDocument(trip.id, file, userId);
+      setReloadKey(k => k + 1);
+      const extracted = await extractFromDocument(file); // H8.2 (ou H8.5 se falhar)
+      setPendingDocId(doc.id);
+      setCandidate(extracted);
+      setConfirmOpen(true);
+    } finally {
+      setProcessing(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  }
+
+  return (
+    <div>
+      {!readOnly && (
+        <div style={{ marginBottom: 12 }}>
+          <input ref={fileInputRef} type="file" accept="image/*,.pdf" style={{ display: 'none' }} onChange={onFileSelected} />
+          <button className="btn btn-primary" disabled={processing} onClick={() => fileInputRef.current.click()}>
+            {t(lang, 'addDocument')}
+          </button>
+        </div>
+      )}
+      {processing && <p className="hint">{t(lang, 'readingDocument')}</p>}
+
+      {documents === null ? (
+        <p className="hint">{lang === 'pt-BR' ? 'Carregando…' : 'Loading…'}</p>
+      ) : documents.length === 0 ? (
+        <EmptyState title={t(lang, 'noDocumentsYet')} />
+      ) : documents.map(doc => (
+        <Card key={doc.id}>
+          <div className="row-between">
+            <div>
+              <p className="hint">{new Date(doc.uploadedAt).toLocaleString(lang)}</p>
+              {doc.extractedEventId && <p className="hint">✓ {t(lang, 'linkedToEvent')}</p>}
+            </div>
+            {urls[doc.id] && (
+              <a href={urls[doc.id]} target="_blank" rel="noreferrer" className="btn btn-secondary" style={{ width: 'auto' }}>
+                {t(lang, 'viewDocument')}
+              </a>
+            )}
+          </div>
+        </Card>
+      ))}
+
+      <DocConfirmSheet lang={lang} open={confirmOpen} onClose={() => setConfirmOpen(false)} trip={trip}
+        userId={userId} candidate={candidate} documentId={pendingDocId}
+        onDone={() => { setConfirmOpen(false); setReloadKey(k => k + 1); }} />
+    </div>
+  );
+}
+
+/* =========================================================================
    Telas — Viagem: Mapa (E9 / H9.1-H9.2)
    ========================================================================= */
 function MapScreen({ lang, trip }) {
@@ -2306,7 +2601,9 @@ function TripScreen({ lang, tripId, user }) {
         <GalleryScreen lang={lang} trip={data.trip} members={data.members} userId={user.id} readOnly={readOnly} />
       )}
       {activeTab === 'suggestions' && <SuggestionsScreen lang={lang} trip={data.trip} />}
-      {activeTab === 'docs' && <EmptyState title={t(lang, 'comingSoon')} />}
+      {activeTab === 'docs' && (
+        <DocsScreen lang={lang} trip={data.trip} members={data.members} userId={user.id} readOnly={readOnly} />
+      )}
     </div>
   );
 }

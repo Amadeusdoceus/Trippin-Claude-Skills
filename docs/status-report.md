@@ -4,27 +4,25 @@
 |---|---|
 | **Tipo** | Relatório de status gerencial — atualizado a cada ciclo, não é parte da cadeia numerada `00→07` |
 | **Base** | `00-visao-de-negocio-final.md`, `02-UXUI-spec.md`, `03-backlog.md` |
-| **Atualização atual** | 2026-08-30 (ciclo 9 — Fase D completa: Cronograma/Despesas completos, Mapa, Galeria, Sugestões) |
-| **Atualização anterior** | 2026-08-30 (ciclo 8 — Fase B: Cronograma e Despesas mínimos) |
+| **Atualização atual** | 2026-08-30 (ciclo 10 — Fase C: E8, Docs com inteligência, o diferencial central do produto) |
+| **Atualização anterior** | 2026-08-30 (ciclo 9 — Fase D completa: Cronograma/Despesas completos, Mapa, Galeria, Sugestões) |
 | **Como manter** | A cada novo ciclo: atualizar seções 1–4 com o estado atual e adicionar uma linha em "Histórico" (seção 6). Não reescrever o histórico de ciclos passados. |
 
 ---
 
 ## 1. Resumo executivo
 
-**Fase D inteira entregue no mesmo ciclo — a pedido explícito de completar as telas do front que
-faltavam.** Cronograma ganhou visões Semana e Mês e reordenar eventos; Despesas ganhou métodos de
-divisão avançados (valor fixo e partes customizadas), quitação manual e extrato consolidado; Mapa
-(Leaflet + OpenStreetMap, com geocodificação real de destinos e locais), Galeria (upload de fotos)
-e Sugestões (baseadas só na própria viagem) foram construídos do zero — só faltava essas cinco áreas
-para todas as sete abas da Viagem terem conteúdo real, em vez de "chega em breve". No caminho, mais
-um bug real foi corrigido: o cálculo de saldo não excluía despesas já quitadas. A Fase C (E8, Docs
-com inteligência — o diferencial central do produto) segue como o maior item pendente do MVP;
-adiantamos D antes de C por pedido explícito, não por ordem própria de prioridade de negócio.
-Estimativa segue em **~12 semanas até a V1**.
+**E8 — Docs com inteligência entregue neste ciclo.** É o diferencial central do produto (`00-F`
+§4): anexar um documento (foto de reserva, passagem, etc.) e o app já sugere um evento pronto para
+o cronograma, com OCR rodando no próprio navegador (sem LLM, sem servidor) e confirmação humana
+sempre obrigatória antes de gravar qualquer coisa. Com isso, **todo o MVP core está entregue** — as
+Fases A a D (fundação, esqueleto mínimo, diferencial central, módulos completos) estão feitas;
+resta só a Fase E (infraestrutura transversal: offline, notificações, privacidade/retenção — hoje
+só H15.2, log de erros, está feita). Estimativa segue em **~12 semanas até a V1**.
 
 **Pendência que mais afeta o prazo real:** ainda não há equipe/cadência definida (ver seção 4). Uma
-verificação manual (não automatizada) do upload de fotos ainda é recomendada — ver seção 2.
+verificação manual (não automatizada) do upload de fotos na Galeria ainda é recomendada — ver
+histórico do ciclo 9 na seção 2.
 
 ---
 
@@ -208,18 +206,44 @@ faltando":
 - **Limpeza:** contas/viagens/fotos de teste apagadas do banco real (a foto de teste do Node ficou
   órfã no Storage — arquivo minúsculo, sem custo real, não vale o esforço de limpar agora).
 
+Ciclo 10 — E8 (Docs com inteligência) construída do zero, a pedido explícito de priorizar o
+diferencial central do produto:
+
+- **Upload independente da extração (H8.1):** documento sobe para o bucket `trip-documents` e fica
+  registrado (tabela `documents`) assim que selecionado, antes mesmo do OCR terminar — nunca fica
+  "preso" esperando a extração para aparecer na lista de Docs.
+- **OCR + parser no cliente, sem LLM (H8.2), com uma redução de escopo deliberada:** Tesseract.js
+  (WASM, roda no navegador) só processa **imagens**; PDF não é OCRizado nesta versão e cai direto no
+  fallback de campos vazios (H8.5) — extrair texto de PDF exigiria uma biblioteca adicional, fora do
+  pedido original de "OCR no cliente, sem LLM". Parser próprio (regex) extrai data (numérica e por
+  extenso, pt-BR/en-US), horário 24h e um título heurístico a partir do texto do OCR.
+- **Confirmação humana obrigatória (H8.3):** nenhum evento é criado sem o usuário revisar/editar os
+  campos e confirmar explicitamente; a confirmação também grava o vínculo entre o documento e o
+  evento criado (nova policy de UPDATE no banco, só na coluna necessária).
+- **Alerta de conflito de horário (H8.4):** reaproveita a mesma checagem de sobreposição já usada no
+  Cronograma (H6.5) — o aviso aparece antes de confirmar, não depois do evento já criado.
+- **Fallback não bloqueante (H8.5):** PDF, falha de OCR ou texto sem padrão reconhecido abrem a
+  mesma tela de confirmação com campos vazios — o usuário sempre consegue preencher na mão e seguir.
+- **Verificado ponta-a-ponta com um documento de teste real** (imagem gerada com o texto de uma
+  confirmação de reserva de hotel): upload → OCR → os três campos (título, data, horário) extraídos
+  corretamente → confirmação → evento criado → documento marcado como vinculado. Checado também
+  direto no banco (não só na tela): o evento e o documento aparecem corretamente unidos pela mesma
+  chave.
+- **Limpeza:** conta/viagem de teste apagada do banco real.
+
 ---
 
 ## 3. Próximos passos imediatos
 
-Todas as sete abas da Viagem agora têm conteúdo real. O maior item pendente do MVP é **E8 — Docs
-com inteligência** (fase C do backlog), o diferencial central que a própria VN aponta como a razão
-do produto existir (`00-F` §4). Recomendação: priorizar E8 a seguir, a menos que haja um motivo para
-continuar adiando.
+**Todo o MVP core (Fases A–D) está entregue.** O que resta é a Fase E — infraestrutura transversal
+(E12 offline, E13 notificações/drawer, E14 privacidade/retenção; hoje só H15.2 feita dentro de E15).
+Recomendação: escolher entre essas frentes com base no que mais importa para começar a validar com
+usuários reais — por exemplo, E14 (privacidade/retenção) é rápida e reforça a postura de proteção de
+dados já documentada em `00-F` §17; E12 (offline) é a mais estrutural e cara.
 
-**Verificação pendente, não bloqueante:** testar manualmente o upload de foto na Galeria num
-navegador real (ver seção 2) — o código está correto e confirmado via Node, só não pôde ser
-confirmado ponta a ponta pela automação deste ciclo.
+**Verificação pendente, não bloqueante (herdada do ciclo 9):** testar manualmente o upload de foto
+na Galeria num navegador real — o código está correto e confirmado via Node, só não pôde ser
+confirmado ponta a ponta pela automação daquele ciclo.
 
 **Ainda em aberto, sem bloquear:**
 - Definir o modelo de negócio em si (não só o dono) — sem prazo declarado.
@@ -229,6 +253,7 @@ confirmado ponta a ponta pela automação deste ciclo.
 - Sem fluxo de "esqueci minha senha" e sem teste automatizado de RLS (ambos em `00-F` §17.2).
 - H15.3 (Playwright/CI antes do push) — pedir explicitamente quando quiser priorizar essa frente.
 - Notificação ao integrante impactado por uma despesa (H7.3) depende de E13, que não existe.
+- OCR não processa PDF nesta versão de E8 (só imagens) — registrado como redução de escopo, não bug.
 
 ---
 
@@ -244,7 +269,7 @@ confirmado ponta a ponta pela automação deste ciclo.
 |---|---|---|---|
 | 1–3 | A — Fundação | E1, E2, E3, E4 | Login funcional, criação/entrada em viagem, permissões — sem telas de conteúdo ainda |
 | 4–5 | B — Esqueleto vertical mínimo | E5, E6-mín, E7-mín | Fluxo ponta a ponta: criar viagem → ver painel → 1 evento → 1 despesa |
-| 6–7 | C — Diferencial central | E8 (Docs com inteligência) | Anexar um documento popula o cronograma, com confirmação humana — a promessa central da VN |
+| 6–7 | C — Diferencial central | E8 (Docs com inteligência) | Anexar um documento popula o cronograma, com confirmação humana — a promessa central da VN — **✅ feito** |
 | 8–10 | D — Completar módulos | E6-completo, E7-completo, E9, E10, E11 | Cronograma e Despesas completos; Mapa, Galeria e Sugestões no ar |
 | 11–12 | E — Infraestrutura transversal | E12, E13, E14, E15 | Offline, notificações, privacidade/retenção e observabilidade — critério de "visão atingida" da VN completo |
 
@@ -280,3 +305,4 @@ ainda:
 | 2026-08-29 | H15.2 implementada e adiantada: log estruturado de erros do cliente (`client_errors`, sem leitura pela UI), cobrindo toda a `TrippinAPI` + render + promises sem handler, com filtro para não logar erros já tratados pela UI; verificado com teste dedicado (erro forçado logado, erro esperado e uso normal não geram ruído) |
 | 2026-08-30 | Fase B mínima: Cronograma (CRUD de evento + conflito de horário) e Despesas (multi-moeda + saldo) implementados e testados com dois usuários reais; encerramento manual de viagem (E5) e modo somente-leitura; corrigido bug real de "hoje" calculado em UTC e lacuna de navegação (Despesas sem aba própria) |
 | 2026-08-30 | Fase D completa: Cronograma (Semana/Mês/reordenar), Despesas (valor fixo/partes customizadas/quitação/extrato), Mapa (Leaflet+OSM+geocodificação real), Galeria (upload, verificação automatizada inconclusiva por bloqueio de bot do Cloudflare — confirmado via Node puro) e Sugestões, todas construídas do zero; bug real corrigido no cálculo de saldo (não excluía despesas quitadas) |
+| 2026-08-30 | E8 (Docs com inteligência) concluída: upload independente da extração, OCR client-side (Tesseract.js, só imagens — PDF cai no fallback) + parser próprio para data/horário/título, confirmação humana obrigatória com alerta de conflito de horário; verificado ponta-a-ponta (navegador + banco) com um documento de teste real; MVP core (Fases A–D) completo, resta só a Fase E |

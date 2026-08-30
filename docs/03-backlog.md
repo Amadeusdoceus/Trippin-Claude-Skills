@@ -18,7 +18,7 @@
 |---|---|---|---|
 | **A — Fundação** | E1, E2, E3, E4 | Nada mais funciona sem design system, infraestrutura (Supabase, hosting, wrapper mobile), autenticação e o conceito de "viagem" com integrantes | ✅ feito |
 | **B — Esqueleto vertical (versão mínima)** | E5-min, E6-min, E7-min | Fluxo ponta-a-ponta usável o mais rápido possível: criar viagem → ver algo no painel → um evento → uma despesa | ✅ feito |
-| **C — Diferencial central** | E8 | Inteligência de Docs é o must-have que justifica o produto (`00-F` §4) — entra logo após o esqueleto mínimo existir, não no fim | não iniciado |
+| **C — Diferencial central** | E8 | Inteligência de Docs é o must-have que justifica o produto (`00-F` §4) — entra logo após o esqueleto mínimo existir, não no fim | ✅ feito (2026-08-30) |
 | **D — Completar módulos** | E6-completo, E7-completo, E9, E10, E11 | Semana/mês, reordenar, conflitos, métodos de divisão avançados, Mapa, Galeria, Sugestões | ✅ feito (2026-08-30; H10.1 com verificação manual pendente, ver E10) |
 | **E — Infraestrutura transversal** | E12, E13, E14, E15 | Offline, notificações/drawer, retenção/privacidade e log de erros só fazem sentido depois de existirem fluxos reais para sincronizar, notificar e logar | H15.2 feito, resto não iniciado |
 
@@ -29,7 +29,10 @@
 >
 > **Nota adicionada em 2026-08-30:** a Fase D foi concluída fora de ordem, adiantada da Fase C
 > (Docs/E8, o diferencial central) a pedido explícito de completar as telas do front que faltavam.
-> E8 segue como o maior item pendente do MVP.
+>
+> **Nota adicionada em 2026-08-30 (mais tarde):** E8 foi concluída. Com isso, todo o MVP core
+> (Fases A-D) está feito; resta apenas a Fase E (infraestrutura transversal), hoje com só H15.2
+> feita.
 
 ---
 
@@ -159,14 +162,19 @@
 
 - **H8.1** Upload de documento (PDF ou foto) a partir da aba Docs de uma viagem ativa.
   - Critério de aceite: documento anexado fica associado à viagem e visível na lista de Docs, independentemente do resultado da extração.
+  - **Status: feito em 2026-08-30.** Upload direto para o bucket `trip-documents` (mesmo padrão de RLS de `trip-photos`), registro em `documents` acontece imediatamente ao selecionar o arquivo — antes mesmo de a extração terminar, exatamente como o critério exige.
 - **H8.2** Parser estruturado + OCR no cliente extraem candidatos a evento (data, horário, local, título), sem LLM (decisão #7 de `00-F` §10).
   - Critério de aceite: para os padrões de documento conhecidos (definidos em conjunto com engenharia), a extração preenche corretamente pelo menos data e horário em um conjunto de documentos de teste.
+  - **Status: feito em 2026-08-30, com redução de escopo registrada.** OCR via Tesseract.js (client-side, sem LLM) roda **apenas sobre imagens** (`file.type` começando com `image/`); PDF não é OCRizado — cai direto no fallback H8.5 com campos vazios, sem travar o upload. Parser (`parseDocumentText`) extrai data (numérica `dd/mm/aaaa` e por extenso pt-BR/en-US), horário 24h (`HH:MM`) e um título heurístico (primeira linha substantiva do texto). Verificado em teste real ponta-a-ponta (Puppeteer): documento de teste com "Confirmacao de Reserva / Hotel Central Lisboa / Data: 05/09/2026 / Horario check-in: 14:30" extraiu os três campos corretamente.
 - **H8.3** Tela de confirmação humana obrigatória antes de gravar no cronograma, com edição de qualquer campo extraído.
   - Critério de aceite: nenhum evento é criado a partir de um documento sem uma ação explícita de confirmação do usuário; usuário consegue corrigir qualquer campo antes de confirmar.
+  - **Status: feito em 2026-08-30.** `DocConfirmSheet` abre sempre após o upload (extração tendo funcionado ou não), com os três campos editáveis; evento só é criado ao clicar em "Criar evento com estes dados", que também grava o vínculo `documents.extracted_event_id` (nova policy de UPDATE, migração `20260830040814_docs_link_event.sql`, coluna liberada via GRANT mínimo). Verificado tanto na UI ("✓ Vinculado a um evento" na lista de Docs) quanto direto no banco (evento e documento devidamente unidos por `extracted_event_id`).
 - **H8.4** Alerta de conflito de horário exibido antes da confirmação, reaproveitando o indicador de H6.5.
   - Critério de aceite: se o horário extraído colide com um evento existente, o alerta aparece na própria tela de confirmação, não depois de o evento já ter sido criado.
+  - **Status: feito em 2026-08-30.** `DocConfirmSheet` busca os eventos do dia (`listEventsForDay`) sempre que a data muda e reutiliza `eventsOverlap` (mesma função de H6.5) para mostrar o aviso antes da confirmação.
 - **H8.5** Fallback para documento fora dos padrões conhecidos: tela de confirmação abre com campos vazios e mensagem não bloqueante.
   - Critério de aceite: falha de extração nunca trava o fluxo nem exige suporte manual — o usuário sempre pode preencher os campos e seguir.
+  - **Status: feito em 2026-08-30.** Qualquer falha de extração (PDF, erro do OCR, texto sem padrão reconhecido) resulta em candidato com campos vazios e uma dica não bloqueante (`extractionEmptyHint`); o fluxo de confirmação/edição/criação segue idêntico ao caminho com extração bem-sucedida.
 
 ## E9 — Mapa
 
