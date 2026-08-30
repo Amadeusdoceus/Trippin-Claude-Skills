@@ -44,6 +44,26 @@ Extração de documento mais rica (também extrai local, não só data/horário)
 > verificada num navegador real ou contra o banco — só `validate-code.js` (sintaxe) rodou a
 > cada mudança. Verificação manual/E2E real é o próximo passo natural, não mais escrita de
 > código nova.
+>
+> **Nota adicionada em 2026-08-30 (mais tarde):** as 3 migrações foram aplicadas ao Supabase
+> real (`supabase db push`, confirmado com `--dry-run` → `upToDate: true` e uma leitura via
+> REST confirmando as colunas novas). O primeiro push para produção quebrou o CI (Playwright
+> pegou 3 erros de página não tratados — esperado, o push aconteceu antes das migrações
+> serem aplicadas); re-rodado depois de sincronizar o banco, passou limpo (test + deploy).
+>
+> **Bug real encontrado e corrigido:** o stakeholder reportou "todos os pop-ups quebraram na
+> tela". Causa raiz: a classe `.sheet` (usada por todo `BottomSheet`) nunca teve
+> `max-height`/rolagem própria; o conteúdo adicionado hoje em vários formulários ao mesmo
+> tempo (modo Passagem de H16.2, ajudante de check-in de H19.2, anexar recibo de H19.1,
+> busca de hospedagem de E21) estourou a altura da tela em vários popups de uma vez.
+> Corrigido com `max-height: 88vh; overflow-y: auto` em `.sheet`. **Verificado num navegador
+> real** (viewport mobile 390×844, contra o Supabase de produção com uma conta de teste
+> descartável criada na hora): formulário de evento renderiza inteiro sem precisar rolar;
+> formulário de despesa (o mais afetado, com o botão de recibo novo) precisa rolar e agora
+> rola corretamente, com o botão "Salvar" alcançável no fim. Upload de documento não pôde ser
+> testado de ponta a ponta neste ciclo — mesma limitação de ambiente já registrada em H10.1
+> (Cloudflare Bot Management bloqueando upload ao Storage vindo de Chrome headless, não um
+> problema do código).
 
 ---
 

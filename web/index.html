@@ -199,9 +199,14 @@
     position: fixed; inset: 0; background: rgba(0,0,0,0.35); z-index: 30;
     display: flex; align-items: flex-end; justify-content: center;
   }
+  /* Backlog v2 — correção de regressão: conteúdo mais longo (modo Passagem
+     de H16.2, ajudante de check-in de H19.2, recibo de H19.1, busca de
+     hospedagem de E21) passou a estourar a altura da tela em vários sheets
+     ao mesmo tempo; .sheet nunca teve limite de altura nem rolagem própria. */
   .sheet {
     background: var(--color-surface-raised); width: 100%; max-width: 480px;
     border-radius: 20px 20px 0 0; padding: 20px 20px 28px; z-index: 31;
+    max-height: 88vh; overflow-y: auto; -webkit-overflow-scrolling: touch;
   }
   .sheet-handle {
     width: 36px; height: 4px; background: var(--color-border); border-radius: 999px;
