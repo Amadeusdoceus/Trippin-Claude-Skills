@@ -13,6 +13,10 @@
 <script src="https://unpkg.com/@babel/standalone@7.23.5/babel.min.js"></script>
 <!-- E2: cliente Supabase real (Auth + Postgres + Storage via RLS) -->
 <script src="https://unpkg.com/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<!-- E9 / decisão de tecnologia #8 (00-F §10): mapa local, sem chave, via
+     OpenStreetMap. Leaflet é a lib padrão para renderizar tiles OSM sem build. -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -225,7 +229,7 @@
 </script>
 
 <script type="text/plain" id="app-source">
-const { useState, useEffect, useMemo, useCallback } = React;
+const { useState, useEffect, useMemo, useCallback, useRef } = React;
 
 /* =========================================================================
    E1 / H1.3 — Infraestrutura de i18n (PT-BR completo + EN-US completo)
@@ -326,6 +330,29 @@ const I18N = {
     youOwe: (v, c) => `Você deve ${c} ${v}`,
     allSettled: 'Tudo quitado',
     paidByLabel: (name) => `Pago por ${name}`,
+    splitMethod: 'Método de divisão',
+    splitMethodEqual: 'Igual',
+    splitMethodFixed: 'Valor fixo por pessoa',
+    splitMethodCustom: 'Partes customizadas',
+    fixedAmountsMismatch: (total, currency) => `A soma dos valores precisa bater com ${currency} ${total}.`,
+    partsHint: 'Peso relativo de cada pessoa (ex.: 2 = o dobro de 1).',
+    settle: 'Marcar como quitado',
+    unsettle: 'Reabrir',
+    settledLabel: 'Quitado',
+    viewStatement: 'Ver extrato',
+    statementTitle: 'Extrato da viagem',
+    statementTotalByCurrency: 'Total por moeda',
+    statementByParticipant: 'Saldo final por integrante',
+    close: 'Fechar',
+    searchPlacePlaceholder: 'Buscar um lugar (mín. 3 letras)',
+    loadingPins: 'Carregando pinos…',
+    noPinsYet: 'Nenhum destino ou local com endereço para mostrar ainda.',
+    uploadPhoto: 'Adicionar foto',
+    noPhotosYet: 'Nenhuma foto ainda.',
+    uploadedBy: (name) => `Enviada por ${name}`,
+    suggestionsIntro: 'Sugestões baseadas na sua própria viagem (sem dados de outros usuários).',
+    freeTimeSuggestion: (start, end, dest) => `Vocês têm ${start}–${end} livres hoje — que tal aproveitar para conhecer ${dest}?`,
+    noSuggestions: 'Sem sugestões para hoje — a agenda já está cheia ou não há destinos cadastrados.',
   },
   'en-US': {
     appName: 'Trippin',
@@ -422,6 +449,29 @@ const I18N = {
     youOwe: (v, c) => `You owe ${c} ${v}`,
     allSettled: 'All settled',
     paidByLabel: (name) => `Paid by ${name}`,
+    splitMethod: 'Split method',
+    splitMethodEqual: 'Equal',
+    splitMethodFixed: 'Fixed amount per person',
+    splitMethodCustom: 'Custom parts',
+    fixedAmountsMismatch: (total, currency) => `The amounts must add up to ${currency} ${total}.`,
+    partsHint: 'Relative weight per person (e.g., 2 = twice as much as 1).',
+    settle: 'Mark as settled',
+    unsettle: 'Reopen',
+    settledLabel: 'Settled',
+    viewStatement: 'View statement',
+    statementTitle: 'Trip statement',
+    statementTotalByCurrency: 'Total by currency',
+    statementByParticipant: 'Final balance per member',
+    close: 'Close',
+    searchPlacePlaceholder: 'Search a place (min. 3 letters)',
+    loadingPins: 'Loading pins…',
+    noPinsYet: 'No destinations or located events to show yet.',
+    uploadPhoto: 'Add photo',
+    noPhotosYet: 'No photos yet.',
+    uploadedBy: (name) => `Uploaded by ${name}`,
+    suggestionsIntro: 'Suggestions based only on your own trip (no data from other users).',
+    freeTimeSuggestion: (start, end, dest) => `You have ${start}–${end} free today — how about visiting ${dest}?`,
+    noSuggestions: 'No suggestions for today — the schedule is full or no destinations are set.',
   },
 };
 // Demais 8 idiomas do roadmap ficam como stub — caem em EN-US como fallback (decisão #11).
@@ -501,6 +551,7 @@ function mapEvent(row) {
   return {
     id: row.id, tripId: row.trip_id, title: row.title, location: row.location,
     startsAt: row.starts_at, endsAt: row.ends_at, notes: row.notes, createdBy: row.created_by,
+    sortOrder: row.sort_order,
   };
 }
 
@@ -511,6 +562,24 @@ function eventsOverlap(a, b) {
   const bStart = new Date(b.startsAt).getTime();
   const bEnd = b.endsAt ? new Date(b.endsAt).getTime() : bStart;
   return aStart < bEnd && bStart < aEnd;
+}
+
+// E9 / H9.1-H9.2 — geocodificação via Nominatim/OSM (decisão de tecnologia #8,
+// 00-F §10: sem chave, sem custo por chamada). Cache em memória por sessão de
+// página — o mesmo texto nunca dispara uma segunda chamada de rede (H9.2).
+const geocodeCache = new Map();
+async function geocodePlace(query) {
+  if (geocodeCache.has(query)) return geocodeCache.get(query);
+  try {
+    const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(query)}`);
+    const data = await res.json();
+    const result = data && data[0] ? { lat: Number(data[0].lat), lon: Number(data[0].lon), label: data[0].display_name } : null;
+    geocodeCache.set(query, result);
+    return result;
+  } catch (error) {
+    logClientError(error, { source: 'geocodePlace', query });
+    return null;
+  }
 }
 function mapExpense(row) {
   if (!row) return null;
@@ -710,30 +779,44 @@ const RawTrippinAPI = {
     await this.addAuditEntry(tripId, userId, 'encerrou a viagem');
   },
 
-  // ---- H6.1/H6.2/H6.6 Cronograma — CRUD de evento (visão diária) ----
-  async listEventsForDay(tripId, dayIso) {
-    const startOfDay = dayIso + 'T00:00:00';
-    const endOfDay = dayIso + 'T23:59:59.999';
-    const [eventsRes, participantsRes] = await Promise.all([
-      supabaseClient.from('schedule_events').select('*')
-        .eq('trip_id', tripId).gte('starts_at', startOfDay).lte('starts_at', endOfDay)
-        .order('starts_at', { ascending: true }),
-      supabaseClient.from('event_participants').select('event_id, user_id'),
-    ]);
+  // ---- H6.1/H6.2/H6.6 Cronograma — CRUD de evento ----
+  async _eventsWithParticipants(eventsRes) {
     if (eventsRes.error) throw eventsRes.error;
     const events = (eventsRes.data || []).map(mapEvent);
+    if (events.length === 0) return [];
+    const { data: partRows } = await supabaseClient.from('event_participants')
+      .select('event_id, user_id').in('event_id', events.map(e => e.id));
     const participantsByEvent = new Map();
-    (participantsRes.data || []).forEach(p => {
-      if (!events.some(e => e.id === p.event_id)) return; // só dos eventos deste dia
+    (partRows || []).forEach(p => {
       if (!participantsByEvent.has(p.event_id)) participantsByEvent.set(p.event_id, []);
       participantsByEvent.get(p.event_id).push(p.user_id);
     });
     return events.map(e => ({ ...e, participantIds: participantsByEvent.get(e.id) || [] }));
   },
 
+  async listEventsForDay(tripId, dayIso) {
+    const eventsRes = await supabaseClient.from('schedule_events').select('*')
+      .eq('trip_id', tripId).gte('starts_at', dayIso + 'T00:00:00').lte('starts_at', dayIso + 'T23:59:59.999')
+      .order('sort_order', { ascending: true });
+    return this._eventsWithParticipants(eventsRes);
+  },
+
+  // H6.3 — Semana e Mês: mesma busca, intervalo de datas maior.
+  async listEventsForRange(tripId, startIso, endIso) {
+    const eventsRes = await supabaseClient.from('schedule_events').select('*')
+      .eq('trip_id', tripId).gte('starts_at', startIso + 'T00:00:00').lte('starts_at', endIso + 'T23:59:59.999')
+      .order('starts_at', { ascending: true });
+    return this._eventsWithParticipants(eventsRes);
+  },
+
   async createEvent({ tripId, title, location, startsAt, endsAt, notes, userId, participantIds }) {
+    const dayIso = startsAt.slice(0, 10);
+    const { data: maxRow } = await supabaseClient.from('schedule_events').select('sort_order')
+      .eq('trip_id', tripId).gte('starts_at', dayIso + 'T00:00:00').lte('starts_at', dayIso + 'T23:59:59.999')
+      .order('sort_order', { ascending: false }).limit(1).maybeSingle();
+    const nextOrder = (maxRow ? maxRow.sort_order : -1) + 1;
     const { data, error } = await supabaseClient.from('schedule_events')
-      .insert({ trip_id: tripId, title, location: location || '', starts_at: startsAt, ends_at: endsAt || null, notes: notes || '', created_by: userId })
+      .insert({ trip_id: tripId, title, location: location || '', starts_at: startsAt, ends_at: endsAt || null, notes: notes || '', created_by: userId, sort_order: nextOrder })
       .select().single();
     if (error) throw error;
     if (participantIds && participantIds.length) {
@@ -766,6 +849,17 @@ const RawTrippinAPI = {
     if (error) throw error;
   },
 
+  // H6.4 — reordenar dentro do mesmo dia: troca o sort_order de dois eventos.
+  // Adaptação web da spec original (long-press + arrastar, pensada para
+  // mobile nativo): sem gesto físico disponível fora de um app nativo, a
+  // reordenação usa botões ↑/↓ trocando a posição com o vizinho.
+  async swapEventOrder(eventA, eventB) {
+    await Promise.all([
+      supabaseClient.from('schedule_events').update({ sort_order: eventB.sortOrder }).eq('id', eventA.id),
+      supabaseClient.from('schedule_events').update({ sort_order: eventA.sortOrder }).eq('id', eventB.id),
+    ]);
+  },
+
   // ---- H7.1-H7.4 Despesas — multi-moeda, divisão igual, saldo ----
   async listExpenses(tripId) {
     const [expensesRes, sharesRes] = await Promise.all([
@@ -784,16 +878,69 @@ const RawTrippinAPI = {
     return expenses.map(e => ({ ...e, shares: sharesByExpense.get(e.id) || [] }));
   },
 
-  async createExpense({ tripId, eventId, description, amount, currency, paidBy, participantUserIds }) {
+  // H7.5 (completo): splitMethod 'equal' divide o valor igualmente;
+  // 'custom'/'fixed' usam os valores exatos de sharesMap (já validados no
+  // cliente contra o total antes de chegar aqui).
+  async createExpense({ tripId, eventId, description, amount, currency, paidBy, participantUserIds, splitMethod, sharesMap }) {
+    const method = splitMethod || 'equal';
     const { data, error } = await supabaseClient.from('expenses')
-      .insert({ trip_id: tripId, event_id: eventId || null, description, amount, currency, split_method: 'equal', paid_by: paidBy })
+      .insert({ trip_id: tripId, event_id: eventId || null, description, amount, currency, split_method: method, paid_by: paidBy })
       .select().single();
     if (error) throw error;
-    const perShare = Math.round((amount / participantUserIds.length) * 100) / 100;
-    await supabaseClient.from('expense_shares').insert(
-      participantUserIds.map(uid => ({ expense_id: data.id, user_id: uid, share_amount: perShare }))
-    );
+    let shares;
+    if (method === 'equal') {
+      const perShare = Math.round((amount / participantUserIds.length) * 100) / 100;
+      shares = participantUserIds.map(uid => ({ expense_id: data.id, user_id: uid, share_amount: perShare }));
+    } else {
+      shares = participantUserIds.map(uid => ({ expense_id: data.id, user_id: uid, share_amount: sharesMap[uid] }));
+    }
+    await supabaseClient.from('expense_shares').insert(shares);
     return mapExpense(data);
+  },
+
+  // H7.6 — quitação manual (não move dinheiro real, só marca a parte como
+  // resolvida e registra no histórico).
+  async setShareSettled(tripId, expenseId, targetUserId, settled, actingUserId) {
+    const { error } = await supabaseClient.from('expense_shares')
+      .update({ settled }).eq('expense_id', expenseId).eq('user_id', targetUserId);
+    if (error) throw error;
+    await this.addAuditEntry(tripId, actingUserId, settled ? 'quitou uma despesa' : 'reabriu uma despesa quitada');
+  },
+
+  // ---- H10.1 Galeria — upload e listagem de fotos ----
+  async uploadPhoto(tripId, file, userId) {
+    const ext = (file.name.split('.').pop() || 'jpg').toLowerCase();
+    const filename = (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random().toString(36).slice(2));
+    const path = `${tripId}/${filename}.${ext}`;
+    const { error: uploadError } = await supabaseClient.storage.from('trip-photos').upload(path, file);
+    if (uploadError) throw uploadError;
+    const { error: insertError } = await supabaseClient.from('trip_photos')
+      .insert({ trip_id: tripId, uploaded_by: userId, storage_path: path });
+    if (insertError) throw insertError;
+  },
+
+  // Bucket é privado (RLS por integrante) — sem URL pública. A tela busca uma
+  // signed URL por foto sob demanda (getPhotoSignedUrl), não aqui.
+  async listPhotos(tripId) {
+    const { data, error } = await supabaseClient.from('trip_photos')
+      .select('*').eq('trip_id', tripId).order('created_at', { ascending: false });
+    if (error) throw error;
+    return (data || []).map(row => ({
+      id: row.id, tripId: row.trip_id, uploadedBy: row.uploaded_by,
+      storagePath: row.storage_path, createdAt: row.created_at,
+    }));
+  },
+
+  async getPhotoSignedUrl(storagePath) {
+    const { data, error } = await supabaseClient.storage.from('trip-photos').createSignedUrl(storagePath, 3600);
+    if (error) throw error;
+    return data.signedUrl;
+  },
+
+  async deletePhoto(photoId, storagePath) {
+    await supabaseClient.storage.from('trip-photos').remove([storagePath]);
+    const { error } = await supabaseClient.from('trip_photos').delete().eq('id', photoId);
+    if (error) throw error;
   },
 };
 
@@ -805,13 +952,32 @@ const TrippinAPI = withErrorLogging(RawTrippinAPI);
 // Fica fora de TrippinAPI de propósito: é uma função pura e síncrona — se
 // estivesse dentro do objeto, o wrapper de log de erros (withErrorLogging)
 // a transformaria em assíncrona sem querer, junto com todo o resto da API.
+// H7.7 — extrato: saldo final de TODOS os integrantes, por moeda (não só do
+// usuário atual). Mesma lógica de computeBalancesForUser, generalizada.
+function computeAllBalances(expenses) {
+  const balances = {}; // currency -> { userId -> amount }
+  expenses.forEach(e => {
+    balances[e.currency] = balances[e.currency] || {};
+    e.shares.forEach(s => {
+      if (s.userId === e.paidBy) return;
+      if (s.settled) return;
+      balances[e.currency][s.userId] = (balances[e.currency][s.userId] || 0) - s.shareAmount;
+      balances[e.currency][e.paidBy] = (balances[e.currency][e.paidBy] || 0) + s.shareAmount;
+    });
+  });
+  return balances;
+}
+
 function computeBalancesForUser(expenses, userId) {
   const balances = {};
   expenses.forEach(e => {
     balances[e.currency] = balances[e.currency] || 0;
-    if (e.paidBy === userId) balances[e.currency] += e.amount;
-    const myShare = e.shares.find(s => s.userId === userId);
-    if (myShare) balances[e.currency] -= myShare.shareAmount;
+    e.shares.forEach(s => {
+      if (s.userId === e.paidBy) return; // parte do próprio pagador não é dívida
+      if (s.settled) return; // já quitada (H7.6) — não conta mais no saldo
+      if (s.userId === userId) balances[e.currency] -= s.shareAmount;
+      if (e.paidBy === userId) balances[e.currency] += s.shareAmount;
+    });
   });
   return balances;
 }
@@ -1299,31 +1465,19 @@ function EventFormSheet({ lang, open, onClose, trip, dayIso, members, editingEve
   );
 }
 
-function ScheduleScreen({ lang, trip, members, userId, readOnly }) {
-  const [dayIso, setDayIso] = useState(() => todayIsoWithinRange(trip));
-  const [events, setEvents] = useState(null);
-  const [sheetOpen, setSheetOpen] = useState(false);
-  const [editingEvent, setEditingEvent] = useState(null);
-  const [reloadKey, setReloadKey] = useState(0);
+function startOfWeekMonday(iso) {
+  const d = new Date(iso + 'T00:00:00');
+  const dow = d.getDay(); // 0=dom..6=sáb
+  d.setDate(d.getDate() + ((dow === 0 ? -6 : 1) - dow));
+  return toLocalDateIso(d);
+}
+function addDaysIso(iso, n) {
+  const d = new Date(iso + 'T00:00:00');
+  d.setDate(d.getDate() + n);
+  return toLocalDateIso(d);
+}
 
-  useEffect(() => {
-    let alive = true;
-    TrippinAPI.listEventsForDay(trip.id, dayIso).then(list => { if (alive) setEvents(list); });
-    return () => { alive = false; };
-  }, [trip.id, dayIso, reloadKey]);
-
-  function shiftDay(delta) {
-    const d = new Date(dayIso + 'T00:00:00');
-    d.setDate(d.getDate() + delta);
-    const iso = toLocalDateIso(d);
-    if (iso < trip.startDate || iso > trip.endDate) return;
-    setDayIso(iso);
-  }
-
-  function openNew() { setEditingEvent(null); setSheetOpen(true); }
-  function openEdit(ev) { setEditingEvent(ev); setSheetOpen(true); }
-  function onSaved() { setSheetOpen(false); setReloadKey(k => k + 1); }
-
+function DayView({ lang, trip, dayIso, setDayIso, events, readOnly, openNew, openEdit, onReorder }) {
   const isToday = dayIso === toLocalDateIso(new Date());
   const dayLabel = new Date(dayIso + 'T00:00:00')
     .toLocaleDateString(lang, { weekday: 'short', day: '2-digit', month: '2-digit' });
@@ -1331,9 +1485,9 @@ function ScheduleScreen({ lang, trip, members, userId, readOnly }) {
   return (
     <div>
       <div className="row-between" style={{ marginBottom: 12 }}>
-        <button className="icon-btn" onClick={() => shiftDay(-1)} disabled={dayIso <= trip.startDate}>←</button>
+        <button className="icon-btn" onClick={() => setDayIso(addDaysIso(dayIso, -1))} disabled={dayIso <= trip.startDate}>←</button>
         <strong>{isToday ? t(lang, 'today') + ' · ' : ''}{dayLabel}</strong>
-        <button className="icon-btn" onClick={() => shiftDay(1)} disabled={dayIso >= trip.endDate}>→</button>
+        <button className="icon-btn" onClick={() => setDayIso(addDaysIso(dayIso, 1))} disabled={dayIso >= trip.endDate}>→</button>
       </div>
 
       {!readOnly && (
@@ -1344,24 +1498,150 @@ function ScheduleScreen({ lang, trip, members, userId, readOnly }) {
         <p className="hint">{lang === 'pt-BR' ? 'Carregando…' : 'Loading…'}</p>
       ) : events.length === 0 ? (
         <EmptyState title={t(lang, 'noEventsToday')} />
-      ) : events.map(ev => {
+      ) : events.map((ev, idx) => {
         const hasConflict = events.some(other => other.id !== ev.id && eventsOverlap(ev, other));
         return (
-          <div key={ev.id} onClick={() => openEdit(ev)} style={{ cursor: 'pointer' }}>
-            <Card>
-              <div className="row-between">
-                <div>
-                  <h3>{ev.startsAt.slice(11, 16)} — {ev.title}</h3>
-                  {ev.location && <p>{ev.location}</p>}
-                </div>
+          <Card key={ev.id}>
+            <div className="row-between">
+              <div onClick={() => openEdit(ev)} style={{ cursor: 'pointer', flex: 1 }}>
+                <h3>{ev.startsAt.slice(11, 16)} — {ev.title}</h3>
+                {ev.location && <p>{ev.location}</p>}
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                 {hasConflict && (
                   <span className="badge" style={{ background: 'var(--color-conflict)', color: '#211D1A' }} title={t(lang, 'conflictWarning')}>!</span>
                 )}
+                {!readOnly && events.length > 1 && (
+                  <div style={{ display: 'flex', flexDirection: 'column' }}>
+                    <button className="icon-btn" style={{ fontSize: 12, padding: '0 6px' }} disabled={idx === 0}
+                      onClick={() => onReorder(ev, events[idx - 1])}>↑</button>
+                    <button className="icon-btn" style={{ fontSize: 12, padding: '0 6px' }} disabled={idx === events.length - 1}
+                      onClick={() => onReorder(ev, events[idx + 1])}>↓</button>
+                  </div>
+                )}
               </div>
+            </div>
+          </Card>
+        );
+      })}
+    </div>
+  );
+}
+
+function WeekView({ lang, trip, dayIso, onPickDay, rangeEvents }) {
+  const weekStart = startOfWeekMonday(dayIso);
+  const days = Array.from({ length: 7 }, (_, i) => addDaysIso(weekStart, i))
+    .filter(d => d >= trip.startDate && d <= trip.endDate);
+
+  return (
+    <div>
+      {days.length === 0 && <EmptyState title={t(lang, 'noEventsToday')} />}
+      {days.map(d => {
+        const dayEvents = (rangeEvents || []).filter(e => e.startsAt.slice(0, 10) === d);
+        return (
+          <div key={d} onClick={() => onPickDay(d)} style={{ cursor: 'pointer' }}>
+            <Card>
+              <h3>{new Date(d + 'T00:00:00').toLocaleDateString(lang, { weekday: 'short', day: '2-digit', month: '2-digit' })}</h3>
+              {dayEvents.length === 0
+                ? <p className="hint">{t(lang, 'noEventsToday')}</p>
+                : dayEvents.map(ev => <p key={ev.id}>{ev.startsAt.slice(11, 16)} — {ev.title}</p>)
+              }
             </Card>
           </div>
         );
       })}
+    </div>
+  );
+}
+
+function MonthView({ lang, trip, dayIso, onPickDay, rangeEvents }) {
+  const monthStart = dayIso.slice(0, 8) + '01';
+  const gridStart = startOfWeekMonday(monthStart);
+  const monthIndex = new Date(monthStart + 'T00:00:00').getMonth();
+  const cells = Array.from({ length: 42 }, (_, i) => addDaysIso(gridStart, i));
+  const eventsByDay = new Map();
+  (rangeEvents || []).forEach(ev => {
+    const d = ev.startsAt.slice(0, 10);
+    eventsByDay.set(d, (eventsByDay.get(d) || 0) + 1);
+  });
+  const weekdayLabels = lang === 'pt-BR' ? ['S', 'T', 'Q', 'Q', 'S', 'S', 'D'] : ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+
+  return (
+    <div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4, marginBottom: 4 }}>
+        {weekdayLabels.map((w, i) => <div key={i} className="hint" style={{ textAlign: 'center' }}>{w}</div>)}
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4 }}>
+        {cells.map(d => {
+          const inMonth = new Date(d + 'T00:00:00').getMonth() === monthIndex;
+          const inTrip = d >= trip.startDate && d <= trip.endDate;
+          const count = eventsByDay.get(d) || 0;
+          return (
+            <div key={d} onClick={() => inTrip && onPickDay(d)}
+              style={{
+                textAlign: 'center', padding: '8px 2px', borderRadius: 8, cursor: inTrip ? 'pointer' : 'default',
+                opacity: inMonth ? (inTrip ? 1 : 0.35) : 0.15,
+                background: d === toLocalDateIso(new Date()) ? 'var(--color-border)' : 'transparent',
+              }}>
+              <div style={{ fontSize: 12 }}>{Number(d.slice(8, 10))}</div>
+              {count > 0 && <div style={{ width: 4, height: 4, borderRadius: 2, background: 'var(--color-primary)', margin: '2px auto 0' }} />}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function ScheduleScreen({ lang, trip, members, userId, readOnly }) {
+  const [dayIso, setDayIso] = useState(() => todayIsoWithinRange(trip));
+  const [viewMode, setViewMode] = useState('day'); // H6.3: 'day' | 'week' | 'month'
+  const [dayEvents, setDayEvents] = useState(null);
+  const [rangeEvents, setRangeEvents] = useState(null);
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const [editingEvent, setEditingEvent] = useState(null);
+  const [reloadKey, setReloadKey] = useState(0);
+
+  useEffect(() => {
+    let alive = true;
+    TrippinAPI.listEventsForDay(trip.id, dayIso).then(list => { if (alive) setDayEvents(list); });
+    return () => { alive = false; };
+  }, [trip.id, dayIso, reloadKey]);
+
+  useEffect(() => {
+    if (viewMode === 'day') return;
+    let alive = true;
+    const rangeStart = viewMode === 'week' ? startOfWeekMonday(dayIso) : startOfWeekMonday(dayIso.slice(0, 8) + '01');
+    const rangeEnd = viewMode === 'week' ? addDaysIso(rangeStart, 6) : addDaysIso(rangeStart, 41);
+    TrippinAPI.listEventsForRange(trip.id, rangeStart, rangeEnd).then(list => { if (alive) setRangeEvents(list); });
+    return () => { alive = false; };
+  }, [trip.id, dayIso, viewMode, reloadKey]);
+
+  function openNew() { setEditingEvent(null); setSheetOpen(true); }
+  function openEdit(ev) { setEditingEvent(ev); setSheetOpen(true); }
+  function onSaved() { setSheetOpen(false); setReloadKey(k => k + 1); }
+  function pickDay(d) { setDayIso(d); setViewMode('day'); }
+  async function onReorder(a, b) { await TrippinAPI.swapEventOrder(a, b); setReloadKey(k => k + 1); }
+
+  const viewTabs = [
+    { key: 'day', label: lang === 'pt-BR' ? 'Dia' : 'Day' },
+    { key: 'week', label: lang === 'pt-BR' ? 'Semana' : 'Week' },
+    { key: 'month', label: lang === 'pt-BR' ? 'Mês' : 'Month' },
+  ];
+
+  return (
+    <div>
+      <SegmentedTabs tabs={viewTabs} active={viewMode} onChange={setViewMode} />
+      {viewMode === 'day' && (
+        <DayView lang={lang} trip={trip} dayIso={dayIso} setDayIso={setDayIso} events={dayEvents}
+          readOnly={readOnly} openNew={openNew} openEdit={openEdit} onReorder={onReorder} />
+      )}
+      {viewMode === 'week' && (
+        <WeekView lang={lang} trip={trip} dayIso={dayIso} onPickDay={pickDay} rangeEvents={rangeEvents} />
+      )}
+      {viewMode === 'month' && (
+        <MonthView lang={lang} trip={trip} dayIso={dayIso} onPickDay={pickDay} rangeEvents={rangeEvents} />
+      )}
 
       <EventFormSheet lang={lang} open={sheetOpen} onClose={() => setSheetOpen(false)} trip={trip} dayIso={dayIso}
         members={members} editingEvent={editingEvent} onSaved={onSaved} userId={userId} readOnly={readOnly} />
@@ -1379,12 +1659,15 @@ function ExpenseFormSheet({ lang, open, onClose, trip, members, events, userId, 
   const [eventId, setEventId] = useState('');
   const [paidBy, setPaidBy] = useState(userId);
   const [participantIds, setParticipantIds] = useState([]);
+  const [splitMethod, setSplitMethod] = useState('equal'); // H7.5
+  const [fixedAmounts, setFixedAmounts] = useState({}); // userId -> string
+  const [parts, setParts] = useState({}); // userId -> string (peso)
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (!open) return;
     setDescription(''); setAmount(''); setCurrency('BRL'); setEventId(''); setPaidBy(userId);
-    setParticipantIds([]);
+    setParticipantIds([]); setSplitMethod('equal'); setFixedAmounts({}); setParts({});
   }, [open, userId]);
 
   function onPickEvent(id) {
@@ -1397,14 +1680,36 @@ function ExpenseFormSheet({ lang, open, onClose, trip, members, events, userId, 
     setParticipantIds(prev => prev.includes(uid) ? prev.filter(x => x !== uid) : [...prev, uid]);
   }
 
+  const totalNum = Number(amount) || 0;
+  const fixedSum = participantIds.reduce((sum, uid) => sum + (Number(fixedAmounts[uid]) || 0), 0);
+  const fixedMatches = Math.abs(fixedSum - totalNum) < 0.01;
+  const canSubmit = participantIds.length > 0 && totalNum > 0 && (splitMethod !== 'fixed' || fixedMatches);
+
+  function computeSharesMap() {
+    if (splitMethod === 'fixed') {
+      const map = {};
+      participantIds.forEach(uid => { map[uid] = Math.round((Number(fixedAmounts[uid]) || 0) * 100) / 100; });
+      return map;
+    }
+    if (splitMethod === 'custom') {
+      const weights = participantIds.map(uid => Number(parts[uid]) || 1);
+      const totalWeight = weights.reduce((a, b) => a + b, 0) || 1;
+      const map = {};
+      participantIds.forEach((uid, i) => { map[uid] = Math.round((totalNum * weights[i] / totalWeight) * 100) / 100; });
+      return map;
+    }
+    return null; // 'equal' — calculado no TrippinAPI
+  }
+
   async function submit(e) {
     e.preventDefault();
-    if (participantIds.length === 0) return;
+    if (!canSubmit) return;
     setSaving(true);
     try {
       await TrippinAPI.createExpense({
         tripId: trip.id, eventId: eventId || null, description,
-        amount: Number(amount), currency, paidBy, participantUserIds: participantIds,
+        amount: totalNum, currency, paidBy, participantUserIds: participantIds,
+        splitMethod, sharesMap: computeSharesMap(),
       });
       onSaved();
     } finally {
@@ -1461,8 +1766,84 @@ function ExpenseFormSheet({ lang, open, onClose, trip, members, events, userId, 
             ))}
           </div>
         </div>
-        <button className="btn btn-primary" type="submit" disabled={saving || participantIds.length === 0}>{t(lang, 'save')}</button>
+        <div className="field">
+          <label>{t(lang, 'splitMethod')}</label>
+          <select value={splitMethod} onChange={e => setSplitMethod(e.target.value)}>
+            <option value="equal">{t(lang, 'splitMethodEqual')}</option>
+            <option value="fixed">{t(lang, 'splitMethodFixed')}</option>
+            <option value="custom">{t(lang, 'splitMethodCustom')}</option>
+          </select>
+        </div>
+        {splitMethod === 'fixed' && participantIds.length > 0 && (
+          <div className="field">
+            {participantIds.map(uid => {
+              const m = members.find(mm => mm.userId === uid);
+              return (
+                <div key={uid} className="btn-block-row" style={{ alignItems: 'center' }}>
+                  <span style={{ flex: 1 }}>{m ? m.name : uid}</span>
+                  <input type="number" step="0.01" min="0" style={{ flex: 1 }}
+                    value={fixedAmounts[uid] || ''} onChange={e => setFixedAmounts({ ...fixedAmounts, [uid]: e.target.value })} />
+                </div>
+              );
+            })}
+            {!fixedMatches && <div className="error-text">{t(lang, 'fixedAmountsMismatch', totalNum.toFixed(2), currency)}</div>}
+          </div>
+        )}
+        {splitMethod === 'custom' && participantIds.length > 0 && (
+          <div className="field">
+            <div className="hint">{t(lang, 'partsHint')}</div>
+            {participantIds.map(uid => {
+              const m = members.find(mm => mm.userId === uid);
+              return (
+                <div key={uid} className="btn-block-row" style={{ alignItems: 'center' }}>
+                  <span style={{ flex: 1 }}>{m ? m.name : uid}</span>
+                  <input type="number" step="1" min="1" style={{ flex: 1 }}
+                    value={parts[uid] || '1'} onChange={e => setParts({ ...parts, [uid]: e.target.value })} />
+                </div>
+              );
+            })}
+          </div>
+        )}
+        <button className="btn btn-primary" type="submit" disabled={saving || !canSubmit}>{t(lang, 'save')}</button>
       </form>
+    </BottomSheet>
+  );
+}
+
+function StatementSheet({ lang, open, onClose, expenses, members }) {
+  function memberName(uid) { const m = members.find(mm => mm.userId === uid); return m ? m.name : uid; }
+  const allBalances = expenses ? computeAllBalances(expenses) : {};
+  const currencies = Object.keys(allBalances);
+  const totalsByCurrency = {};
+  (expenses || []).forEach(e => { totalsByCurrency[e.currency] = (totalsByCurrency[e.currency] || 0) + e.amount; });
+
+  return (
+    <BottomSheet open={open} onClose={onClose}>
+      <h3>{t(lang, 'statementTitle')}</h3>
+      <h4>{t(lang, 'statementTotalByCurrency')}</h4>
+      {Object.keys(totalsByCurrency).length === 0
+        ? <p className="hint">{t(lang, 'noExpensesYet')}</p>
+        : Object.keys(totalsByCurrency).map(c => <p key={c}>{c} {totalsByCurrency[c].toFixed(2)}</p>)
+      }
+      <h4 style={{ marginTop: 16 }}>{t(lang, 'statementByParticipant')}</h4>
+      {currencies.length === 0
+        ? <p className="hint">{t(lang, 'allSettled')}</p>
+        : currencies.map(c => (
+            <div key={c} style={{ marginBottom: 10 }}>
+              <strong>{c}</strong>
+              {members.map(m => {
+                const v = (allBalances[c] && allBalances[c][m.userId]) || 0;
+                if (Math.abs(v) < 0.005) return null;
+                return (
+                  <p key={m.userId} style={{ margin: '2px 0', color: v >= 0 ? 'var(--color-secondary)' : 'var(--color-danger)' }}>
+                    {m.name}: {v >= 0 ? '+' : ''}{v.toFixed(2)}
+                  </p>
+                );
+              })}
+            </div>
+          ))
+      }
+      <button className="btn btn-secondary" onClick={onClose}>{t(lang, 'close')}</button>
     </BottomSheet>
   );
 }
@@ -1471,6 +1852,7 @@ function ExpensesScreen({ lang, trip, members, userId, readOnly }) {
   const [expenses, setExpenses] = useState(null);
   const [events, setEvents] = useState([]);
   const [sheetOpen, setSheetOpen] = useState(false);
+  const [statementOpen, setStatementOpen] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
@@ -1506,13 +1888,19 @@ function ExpensesScreen({ lang, trip, members, userId, readOnly }) {
   const balances = expenses ? computeBalancesForUser(expenses, userId) : {};
   const balanceCurrencies = Object.keys(balances).filter(c => Math.abs(balances[c]) > 0.005);
 
+  async function toggleSettle(exp, share) {
+    await TrippinAPI.setShareSettled(trip.id, exp.id, share.userId, !share.settled, userId);
+    setReloadKey(k => k + 1);
+  }
+
   return (
     <div>
-      {!readOnly && (
-        <button className="btn btn-primary" style={{ marginBottom: 12 }} onClick={() => setSheetOpen(true)}>
-          {t(lang, 'addExpense')}
-        </button>
-      )}
+      <div className="btn-block-row" style={{ marginBottom: 12 }}>
+        {!readOnly && (
+          <button className="btn btn-primary" onClick={() => setSheetOpen(true)}>{t(lang, 'addExpense')}</button>
+        )}
+        <button className="btn btn-secondary" onClick={() => setStatementOpen(true)}>{t(lang, 'viewStatement')}</button>
+      </div>
 
       <Card>
         <h3>{t(lang, 'yourBalance')}</h3>
@@ -1539,18 +1927,227 @@ function ExpensesScreen({ lang, trip, members, userId, readOnly }) {
             </div>
             <strong>{exp.currency} {exp.amount.toFixed(2)}</strong>
           </div>
+          {exp.shares.filter(s => s.userId !== exp.paidBy).map(s => (
+            <div key={s.userId} className="row-between" style={{ marginTop: 6 }}>
+              <span className="hint">{memberName(s.userId)}: {exp.currency} {s.shareAmount.toFixed(2)}{s.settled ? ` · ${t(lang, 'settledLabel')}` : ''}</span>
+              {!readOnly && (
+                <button className="btn btn-secondary" style={{ width: 'auto', padding: '4px 10px', fontSize: 12 }}
+                  onClick={() => toggleSettle(exp, s)}>
+                  {s.settled ? t(lang, 'unsettle') : t(lang, 'settle')}
+                </button>
+              )}
+            </div>
+          ))}
         </Card>
       ))}
 
       <ExpenseFormSheet lang={lang} open={sheetOpen} onClose={() => setSheetOpen(false)} trip={trip}
         members={members} events={events} userId={userId}
         onSaved={() => { setSheetOpen(false); setReloadKey(k => k + 1); }} readOnly={readOnly} />
+      <StatementSheet lang={lang} open={statementOpen} onClose={() => setStatementOpen(false)} expenses={expenses} members={members} />
     </div>
   );
 }
 
 /* =========================================================================
-   Telas — Viagem (E4 Integrantes; demais abas ficam "em breve" até suas fases)
+   Telas — Viagem: Mapa (E9 / H9.1-H9.2)
+   ========================================================================= */
+function MapScreen({ lang, trip }) {
+  const mapDivRef = useRef(null);
+  const mapInstanceRef = useRef(null);
+  const markersRef = useRef([]);
+  const [pins, setPins] = useState([]);
+  const [loadingPins, setLoadingPins] = useState(true);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [searchResults, setSearchResults] = useState([]);
+
+  // Cria o mapa Leaflet uma vez por montagem da aba; destrói ao sair, senão o
+  // Leaflet lança "Map container is already initialized" ao voltar à aba.
+  useEffect(() => {
+    mapInstanceRef.current = L.map(mapDivRef.current).setView([20, 0], 2);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; OpenStreetMap contributors', maxZoom: 19,
+    }).addTo(mapInstanceRef.current);
+    return () => { mapInstanceRef.current && mapInstanceRef.current.remove(); mapInstanceRef.current = null; };
+  }, []);
+
+  // H9.1 — geocodifica destinos da viagem + locais de eventos com endereço.
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      setLoadingPins(true);
+      const places = new Set(trip.destinations || []);
+      const days = [];
+      let d = trip.startDate;
+      while (d <= trip.endDate && days.length < 60) { days.push(d); d = addDaysIso(d, 1); }
+      const allEvents = (await Promise.all(days.map(day => TrippinAPI.listEventsForDay(trip.id, day)))).flat();
+      allEvents.forEach(ev => { if (ev.location) places.add(ev.location); });
+
+      const results = [];
+      for (const place of places) {
+        const geo = await geocodePlace(place);
+        if (geo) results.push({ label: place, lat: geo.lat, lon: geo.lon });
+        await new Promise(r => setTimeout(r, 300)); // respeita o limite de uso do Nominatim
+      }
+      if (alive) { setPins(results); setLoadingPins(false); }
+    })();
+    return () => { alive = false; };
+  }, [trip.id]);
+
+  useEffect(() => {
+    if (!mapInstanceRef.current) return;
+    markersRef.current.forEach(m => m.remove());
+    markersRef.current = pins.map(p => L.marker([p.lat, p.lon]).addTo(mapInstanceRef.current).bindPopup(p.label));
+    if (pins.length > 0) {
+      mapInstanceRef.current.fitBounds(L.latLngBounds(pins.map(p => [p.lat, p.lon])), { padding: [30, 30], maxZoom: 12 });
+    }
+  }, [pins]);
+
+  // H9.2 — busca com debounce, mínimo de 3 letras, cache (geocodePlace).
+  useEffect(() => {
+    if (searchTerm.length < 3) { setSearchResults([]); return; }
+    const handle = setTimeout(async () => {
+      const geo = await geocodePlace(searchTerm);
+      setSearchResults(geo ? [geo] : []);
+    }, 400);
+    return () => clearTimeout(handle);
+  }, [searchTerm]);
+
+  function flyToSearchResult(geo) {
+    if (mapInstanceRef.current) mapInstanceRef.current.flyTo([geo.lat, geo.lon], 13);
+  }
+
+  return (
+    <div>
+      <div className="field">
+        <input value={searchTerm} onChange={e => setSearchTerm(e.target.value)} placeholder={t(lang, 'searchPlacePlaceholder')} />
+        {searchResults.map((r, i) => (
+          <div key={i} className="card" style={{ marginTop: 6, cursor: 'pointer' }} onClick={() => flyToSearchResult(r)}>
+            <p className="hint">{r.label}</p>
+          </div>
+        ))}
+      </div>
+      {loadingPins && <p className="hint">{t(lang, 'loadingPins')}</p>}
+      {!loadingPins && pins.length === 0 && <p className="hint">{t(lang, 'noPinsYet')}</p>}
+      <div ref={mapDivRef} style={{ height: 360, borderRadius: 'var(--radius-lg)', overflow: 'hidden' }} />
+    </div>
+  );
+}
+
+/* =========================================================================
+   Telas — Viagem: Galeria (E10 / H10.1)
+   ========================================================================= */
+function GalleryScreen({ lang, trip, members, userId, readOnly }) {
+  const [photos, setPhotos] = useState(null);
+  const [urls, setUrls] = useState({});
+  const [uploading, setUploading] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
+  const fileInputRef = useRef(null);
+
+  useEffect(() => {
+    let alive = true;
+    TrippinAPI.listPhotos(trip.id).then(async list => {
+      if (!alive) return;
+      setPhotos(list);
+      const entries = await Promise.all(list.map(async p => [p.id, await TrippinAPI.getPhotoSignedUrl(p.storagePath)]));
+      if (alive) setUrls(Object.fromEntries(entries));
+    });
+    return () => { alive = false; };
+  }, [trip.id, reloadKey]);
+
+  function memberName(uid) { const m = members.find(mm => mm.userId === uid); return m ? m.name : uid; }
+
+  async function onFilesSelected(e) {
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
+    setUploading(true);
+    try {
+      for (const file of files) await TrippinAPI.uploadPhoto(trip.id, file, userId);
+      setReloadKey(k => k + 1);
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  }
+
+  return (
+    <div>
+      {!readOnly && (
+        <div style={{ marginBottom: 12 }}>
+          <input ref={fileInputRef} type="file" accept="image/*" multiple style={{ display: 'none' }} onChange={onFilesSelected} />
+          <button className="btn btn-primary" disabled={uploading} onClick={() => fileInputRef.current.click()}>
+            {t(lang, 'uploadPhoto')}
+          </button>
+        </div>
+      )}
+      {photos === null ? (
+        <p className="hint">{lang === 'pt-BR' ? 'Carregando…' : 'Loading…'}</p>
+      ) : photos.length === 0 ? (
+        <EmptyState title={t(lang, 'noPhotosYet')} />
+      ) : (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6 }}>
+          {photos.map(p => (
+            <div key={p.id} style={{ aspectRatio: '1', borderRadius: 'var(--radius-md)', overflow: 'hidden', background: 'var(--color-border)' }}
+              title={t(lang, 'uploadedBy', memberName(p.uploadedBy))}>
+              {urls[p.id] && <img src={urls[p.id]} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* =========================================================================
+   Telas — Viagem: Sugestões (E11 / H11.1) — só dados da própria viagem
+   ========================================================================= */
+function computeFreeTimeSuggestions(dayEvents, destinations) {
+  if (!destinations || destinations.length === 0) return [];
+  const sorted = [...dayEvents].sort((a, b) => new Date(a.startsAt) - new Date(b.startsAt));
+  const gaps = [];
+  for (let i = 0; i < sorted.length - 1; i++) {
+    const end = sorted[i].endsAt ? new Date(sorted[i].endsAt) : new Date(sorted[i].startsAt);
+    const nextStart = new Date(sorted[i + 1].startsAt);
+    const freeMinutes = (nextStart - end) / 60000;
+    if (freeMinutes >= 90) {
+      gaps.push({ start: end, end: nextStart, destination: destinations[i % destinations.length] });
+    }
+  }
+  return gaps;
+}
+
+function SuggestionsScreen({ lang, trip }) {
+  const [dayEvents, setDayEvents] = useState(null);
+
+  useEffect(() => {
+    let alive = true;
+    TrippinAPI.listEventsForDay(trip.id, todayIsoWithinRange(trip)).then(list => { if (alive) setDayEvents(list); });
+    return () => { alive = false; };
+  }, [trip.id]);
+
+  if (dayEvents === null) return <p className="hint">{lang === 'pt-BR' ? 'Carregando…' : 'Loading…'}</p>;
+
+  const suggestions = computeFreeTimeSuggestions(dayEvents, trip.destinations);
+  return (
+    <div>
+      <p className="hint" style={{ marginBottom: 12 }}>{t(lang, 'suggestionsIntro')}</p>
+      {suggestions.length === 0
+        ? <EmptyState title={t(lang, 'noSuggestions')} />
+        : suggestions.map((s, i) => (
+            <Card key={i}>
+              <p>{t(lang, 'freeTimeSuggestion',
+                s.start.toLocaleTimeString(lang, { hour: '2-digit', minute: '2-digit' }),
+                s.end.toLocaleTimeString(lang, { hour: '2-digit', minute: '2-digit' }),
+                s.destination)}</p>
+            </Card>
+          ))
+      }
+    </div>
+  );
+}
+
+/* =========================================================================
+   Telas — Viagem: Integrantes (E4)
    ========================================================================= */
 function MembersScreen({ lang, tripId, tripCode, members, auditLog, myRole, currentUserId, onChanged, readOnly }) {
   const [sheetTarget, setSheetTarget] = useState(null);
@@ -1704,9 +2301,12 @@ function TripScreen({ lang, tripId, user }) {
           auditLog={data.auditLog} myRole={myRole} currentUserId={user.id}
           onChanged={onChanged} readOnly={readOnly} />
       )}
-      {['map', 'docs', 'gallery', 'suggestions'].includes(activeTab) && (
-        <EmptyState title={t(lang, 'comingSoon')} />
+      {activeTab === 'map' && <MapScreen lang={lang} trip={data.trip} />}
+      {activeTab === 'gallery' && (
+        <GalleryScreen lang={lang} trip={data.trip} members={data.members} userId={user.id} readOnly={readOnly} />
       )}
+      {activeTab === 'suggestions' && <SuggestionsScreen lang={lang} trip={data.trip} />}
+      {activeTab === 'docs' && <EmptyState title={t(lang, 'comingSoon')} />}
     </div>
   );
 }

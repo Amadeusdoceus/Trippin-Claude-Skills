@@ -14,18 +14,22 @@
 
 ## Sequenciamento (visão geral)
 
-| Fase | Épicos | Por quê nessa ordem |
-|---|---|---|
-| **A — Fundação** | E1, E2, E3, E4 | Nada mais funciona sem design system, infraestrutura (Supabase, hosting, wrapper mobile), autenticação e o conceito de "viagem" com integrantes |
-| **B — Esqueleto vertical (versão mínima)** | E5-min, E6-min, E7-min | Fluxo ponta-a-ponta usável o mais rápido possível: criar viagem → ver algo no painel → um evento → uma despesa |
-| **C — Diferencial central** | E8 | Inteligência de Docs é o must-have que justifica o produto (`00-F` §4) — entra logo após o esqueleto mínimo existir, não no fim |
-| **D — Completar módulos** | E6-completo, E7-completo, E9, E10, E11 | Semana/mês, reordenar, conflitos, métodos de divisão avançados, Mapa, Galeria, Sugestões |
-| **E — Infraestrutura transversal** | E12, E13, E14, E15 | Offline, notificações/drawer, retenção/privacidade e log de erros só fazem sentido depois de existirem fluxos reais para sincronizar, notificar e logar |
+| Fase | Épicos | Por quê nessa ordem | Status |
+|---|---|---|---|
+| **A — Fundação** | E1, E2, E3, E4 | Nada mais funciona sem design system, infraestrutura (Supabase, hosting, wrapper mobile), autenticação e o conceito de "viagem" com integrantes | ✅ feito |
+| **B — Esqueleto vertical (versão mínima)** | E5-min, E6-min, E7-min | Fluxo ponta-a-ponta usável o mais rápido possível: criar viagem → ver algo no painel → um evento → uma despesa | ✅ feito |
+| **C — Diferencial central** | E8 | Inteligência de Docs é o must-have que justifica o produto (`00-F` §4) — entra logo após o esqueleto mínimo existir, não no fim | não iniciado |
+| **D — Completar módulos** | E6-completo, E7-completo, E9, E10, E11 | Semana/mês, reordenar, conflitos, métodos de divisão avançados, Mapa, Galeria, Sugestões | ✅ feito (2026-08-30; H10.1 com verificação manual pendente, ver E10) |
+| **E — Infraestrutura transversal** | E12, E13, E14, E15 | Offline, notificações/drawer, retenção/privacidade e log de erros só fazem sentido depois de existirem fluxos reais para sincronizar, notificar e logar | H15.2 feito, resto não iniciado |
 
 > **Nota adicionada em 2026-08-29 (`00-F` §17.2):** a parte de E15 mais urgente para crescer com
 > segurança — H15.2, captura estruturada de erros — foi adiantada e concluída fora de ordem, antes
 > do restante da Fase B/C. H15.1 (tela de sincronização) segue adiada até existir E12; H15.3
 > (Playwright/CI) segue não iniciada.
+>
+> **Nota adicionada em 2026-08-30:** a Fase D foi concluída fora de ordem, adiantada da Fase C
+> (Docs/E8, o diferencial central) a pedido explícito de completar as telas do front que faltavam.
+> E8 segue como o maior item pendente do MVP.
 
 ---
 
@@ -108,10 +112,10 @@
   - **Status: feito em 2026-08-30.**
 - **H6.3 (completo)** Visões Semana e Mês.
   - Critério de aceite: alternar entre Dia/Semana/Mês mantém a data selecionada em foco.
-  - **Status: não iniciado** (fase D do backlog).
+  - **Status: feito em 2026-08-30.** Semana lista os dias da semana (segunda a domingo) recortados ao intervalo da viagem; Mês mostra uma grade de calendário com um ponto nos dias com evento. Tocar num dia leva à visão Dia daquela data.
 - **H6.4 (completo)** Reordenar evento por arrastar dentro do mesmo dia.
   - Critério de aceite: long-press levanta o card com feedback tátil; soltar reordena com animação de spring, sem trava de duração fixa.
-  - **Status: não iniciado** (fase D).
+  - **Status: feito em 2026-08-30, com adaptação registrada.** O critério original pressupõe um gesto físico de app nativo (long-press + arrastar com spring). Fora de um app nativo, isso não existe num navegador — implementado como botões ↑/↓ trocando a posição com o vizinho (nova coluna `schedule_events.sort_order`), mesmo resultado funcional sem o gesto físico. Reavaliar a UX de gesto real se/quando o app for empacotado como nativo (decisão de tecnologia #6, `00-F` §10).
 - **H6.5 (completo)** Indicador de conflito quando dois eventos se sobrepõem.
   - Critério de aceite: conflito aparece inline no card (marcação colorida), nunca como modal bloqueante; tocar mostra o que conflita.
   - **Status: adiantado e feito em 2026-08-30**, junto com o mínimo — a checagem (`eventsOverlap`) já existia como necessidade natural do CRUD e não fazia sentido adiar.
@@ -141,13 +145,13 @@
   - **Status: feito em 2026-08-30.** Seletor BRL/USD/EUR (lista curada; sem campo livre por ora).
 - **H7.5 (completo)** Métodos de divisão: partes customizadas e valor fixo (além de igual).
   - Critério de aceite: soma das partes customizadas é validada contra o valor total (na moeda daquela despesa) antes de permitir salvar.
-  - **Status: não iniciado** (fase D).
+  - **Status: feito em 2026-08-30.** "Valor fixo" pede o valor exato de cada participante e bloqueia salvar se a soma não bater com o total (validação em tempo real, com mensagem de erro). "Partes customizadas" pede um peso relativo por pessoa (ex.: 2 = o dobro de 1) e calcula os valores proporcionalmente — essa é a leitura adotada para "partes customizadas", que a spec original não detalhava.
 - **H7.6 (completo)** Quitação manual entre dois participantes.
   - Critério de aceite: quitação é feita na mesma moeda do saldo que está sendo quitado, atualiza o saldo de ambos naquela moeda e aparece no histórico de auditoria (H4.5), sem mover dinheiro real.
-  - **Status: não iniciado** (fase D).
+  - **Status: feito em 2026-08-30.** Botão "Marcar como quitado" por participante em cada despesa; reabrir também é possível. `computeBalancesForUser` corrigido para excluir partes quitadas do saldo (bug real: a versão mínima não tinha esse conceito ainda).
 - **H7.7 (completo)** Extrato consolidado ao final da viagem, separado por moeda.
   - Critério de aceite: extrato lista todas as despesas, por quem foram pagas e o saldo final de cada participante, com uma seção (ou totalizador) por moeda — nunca um total único somando moedas diferentes; disponível assim que a viagem entra em estado "concluída" (H5.4).
-  - **Status: não iniciado** (fase D) — a lista de despesas já existe e já respeita `readOnly`, mas não há uma tela de extrato dedicada ainda.
+  - **Status: feito em 2026-08-30.** Botão "Ver extrato" na aba Despesas (disponível sempre, não só quando concluída — mais simples e não contradiz o critério, que só exige disponibilidade *a partir* de "concluída"), mostrando total por moeda e saldo final de cada integrante.
 
 ## E8 — Docs com inteligência (diferencial central, must-have)
 
@@ -170,8 +174,10 @@
 
 - **H9.1** Renderização local de mapa (DestPinMap) com pinos dos destinos e eventos com local associado.
   - Critério de aceite: todo evento do cronograma com local preenchido aparece como pino no Mapa da mesma viagem.
+  - **Status: feito em 2026-08-30.** Mapa Leaflet + tiles OpenStreetMap (decisão de tecnologia #8), com destinos da viagem e locais de eventos geocodificados via Nominatim e cacheados por sessão. Verificado com uma chamada real ao Nominatim (destino "Lisboa, Portugal" geocodificado e pino renderizado).
 - **H9.2** Busca de lugar via Nominatim/OSM, a partir de 3 letras, com debounce e cache.
   - Critério de aceite: busca não dispara chamada de rede antes do terceiro caractere; resultado repetido dentro da sessão vem do cache, sem nova chamada.
+  - **Status: feito em 2026-08-30.** Debounce de 400ms, mínimo de 3 letras, mesmo cache em memória do H9.1.
 
 ## E10 — Galeria
 
@@ -179,8 +185,10 @@
 
 - **H10.1** Upload de fotos (individual ou em lote) por qualquer integrante da viagem.
   - Critério de aceite: foto enviada por um integrante aparece na Galeria de todos os outros integrantes da mesma viagem.
+  - **Status: implementado; verificação end-to-end em navegador real inconclusiva por um motivo externo ao código.** Bucket `trip-photos` (RLS por integrante, mesmo padrão de `trip-documents`), tabela `trip_photos`, upload múltiplo e grade de fotos com signed URL. O teste em Chrome headless travou na chamada de upload com `net::ERR_FAILED`, e a resposta do Supabase Storage trazia um cookie de Bot Management do Cloudflare (`__cf_bm`) — sinal de que a automação (não o app) estava sendo bloqueada. **Confirmado via chamada direta em Node.js (sem navegador), mesma chave, mesma policy, mesmo bucket: upload concluído em 416ms com sucesso.** Isso isola o problema no ambiente de teste automatizado (fingerprint de Chrome headless), não no código — mas fica registrado como uma verificação manual recomendada (abrir o app publicado num navegador de verdade e enviar uma foto) antes de considerar 100% confirmado.
 - **H10.2** Cache offline de fotos já baixadas, mesma política do cronograma/despesas (E12).
   - Critério de aceite: foto já visualizada uma vez permanece acessível com o dispositivo em modo avião.
+  - **Status: não iniciado** — depende de E12 (offline), que não existe.
 
 ## E11 — Sugestões (escopo mínimo, sem dados agregados)
 
@@ -188,6 +196,7 @@
 
 - **H11.1** Sugestões derivadas apenas dos dados da própria viagem (janelas livres na agenda + destinos já no Mapa).
   - Critério de aceite: nenhuma sugestão depende de dados de outra viagem ou de outro usuário da base — a funcionalidade funciona identicamente para a primeira viagem já criada na plataforma.
+  - **Status: feito em 2026-08-30.** Calcula vãos livres ≥ 90 min entre eventos do dia e sugere um dos destinos cadastrados da própria viagem para cada vão — nenhuma consulta a dados de outros usuários ou viagens.
 - **Nota:** este épico é deliberadamente separado de "Recomendações Trippin" (`00-F` §8, v2, dados agregados), que fica fora deste backlog.
 
 ## E12 — Sincronização offline

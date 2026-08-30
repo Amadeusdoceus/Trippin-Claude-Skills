@@ -4,24 +4,27 @@
 |---|---|
 | **Tipo** | Relatório de status gerencial — atualizado a cada ciclo, não é parte da cadeia numerada `00→07` |
 | **Base** | `00-visao-de-negocio-final.md`, `02-UXUI-spec.md`, `03-backlog.md` |
-| **Atualização atual** | 2026-08-30 (ciclo 8 — Fase B: Cronograma e Despesas mínimos) |
-| **Atualização anterior** | 2026-08-29 (ciclo 7 — H15.2: log de erros em produção) |
+| **Atualização atual** | 2026-08-30 (ciclo 9 — Fase D completa: Cronograma/Despesas completos, Mapa, Galeria, Sugestões) |
+| **Atualização anterior** | 2026-08-30 (ciclo 8 — Fase B: Cronograma e Despesas mínimos) |
 | **Como manter** | A cada novo ciclo: atualizar seções 1–4 com o estado atual e adicionar uma linha em "Histórico" (seção 6). Não reescrever o histórico de ciclos passados. |
 
 ---
 
 ## 1. Resumo executivo
 
-**Fase B mínima entregue: a primeira parte do produto que não é conta de usuário/permissão — é a
-viagem em si.** Cronograma (criar/editar/excluir evento, com detecção de conflito de horário) e
-Despesas (multi-moeda, saldo por participante) estão no ar e testados com dois usuários reais.
-Viagens agora têm estado de verdade (pré-viagem / em andamento / concluída), com encerramento
-manual pelo organizador e modo somente-leitura automático quando a viagem acaba. No caminho, um
-bug real de fuso horário foi encontrado e corrigido (cálculo de "hoje" usava UTC, o que dava o dia
-errado à noite em fusos atrás de UTC — Brasil incluído) e uma lacuna de navegação antiga foi
-corrigida (Despesas nunca tinha uma aba de verdade). Estimativa segue em **~12 semanas até a V1**.
+**Fase D inteira entregue no mesmo ciclo — a pedido explícito de completar as telas do front que
+faltavam.** Cronograma ganhou visões Semana e Mês e reordenar eventos; Despesas ganhou métodos de
+divisão avançados (valor fixo e partes customizadas), quitação manual e extrato consolidado; Mapa
+(Leaflet + OpenStreetMap, com geocodificação real de destinos e locais), Galeria (upload de fotos)
+e Sugestões (baseadas só na própria viagem) foram construídos do zero — só faltava essas cinco áreas
+para todas as sete abas da Viagem terem conteúdo real, em vez de "chega em breve". No caminho, mais
+um bug real foi corrigido: o cálculo de saldo não excluía despesas já quitadas. A Fase C (E8, Docs
+com inteligência — o diferencial central do produto) segue como o maior item pendente do MVP;
+adiantamos D antes de C por pedido explícito, não por ordem própria de prioridade de negócio.
+Estimativa segue em **~12 semanas até a V1**.
 
-**Pendência que mais afeta o prazo real:** ainda não há equipe/cadência definida (ver seção 4).
+**Pendência que mais afeta o prazo real:** ainda não há equipe/cadência definida (ver seção 4). Uma
+verificação manual (não automatizada) do upload de fotos ainda é recomendada — ver seção 2.
 
 ---
 
@@ -169,13 +172,54 @@ front que faltavam:
   divisão avançados e quitação (H7.5/H7.6), extrato final (H7.7) — todos fase D. Mapa, Docs, Galeria
   e Sugestões continuam como "esta área chega em uma fase seguinte".
 
+Ciclo 9 — Fase D completa, a pedido explícito de "completar as páginas do front que ficaram
+faltando":
+
+- **Cronograma completo:** visões Semana (dias da semana recortados ao intervalo da viagem) e Mês
+  (grade de calendário com um ponto nos dias com evento); reordenar evento dentro do mesmo dia via
+  botões ↑/↓ — adaptação deliberada do critério original (que pressupõe um gesto de long-press +
+  arrastar de app nativo, inexistente num navegador). Nova coluna `schedule_events.sort_order`.
+- **Despesas completo:** "valor fixo" (soma validada em tempo real contra o total, bloqueia salvar
+  se não bater) e "partes customizadas" (peso relativo por pessoa, ex. 2 = o dobro de 1); quitação
+  manual por participante/despesa; extrato consolidado com total por moeda e saldo final de cada
+  integrante.
+- **Bug real corrigido:** o cálculo de saldo (`computeBalancesForUser`) não excluía despesas já
+  quitadas — corrigido para que uma parte marcada "quitada" pare de contar no saldo de ambos os
+  lados (quem devia e quem pagou).
+- **Mapa (E9) construído do zero:** Leaflet + tiles OpenStreetMap (decisão de tecnologia #8, sem
+  chave/custo), com destinos da viagem e locais de eventos geocodificados via Nominatim (cache em
+  memória por sessão) e busca de lugar com debounce de 400ms/mínimo 3 letras. Verificado com uma
+  geocodificação real (destino "Lisboa, Portugal" virou pino no mapa).
+- **Galeria (E10) construída do zero:** bucket `trip-photos` (RLS por integrante, mesmo padrão de
+  `trip-documents`), upload múltiplo, grade de fotos com signed URL. **Verificação end-to-end em
+  navegador automatizado ficou inconclusiva** — o teste em Chrome headless travou no upload com
+  `net::ERR_FAILED`, e a resposta trazia um cookie de Bot Management do Cloudflare, sinal de bloqueio
+  à automação, não ao código. **Isolado e confirmado via chamada direta em Node.js (sem navegador
+  algum), mesma chave/policy/bucket: upload concluído com sucesso em 416ms.** Recomendação: uma
+  verificação manual rápida (abrir o app publicado num navegador de verdade e enviar uma foto) antes
+  de considerar isso 100% fechado — o código está correto, só não pôde ser confirmado ponta a ponta
+  pela automação deste ciclo.
+- **Sugestões (E11) construída do zero:** calcula vãos livres ≥ 90 min na agenda do dia e sugere um
+  dos destinos da própria viagem — sem nenhuma consulta a dados de outros usuários ou viagens,
+  exatamente como confirmado com o stakeholder em 2026-08-28.
+- **Fora deste ciclo:** E8 (Docs com inteligência) segue não iniciado — é o maior item pendente do
+  MVP e o diferencial central do produto (`00-F` §4). Adiantar a Fase D antes da Fase C foi uma
+  escolha explícita sua, não uma reordenação de prioridade que eu tenha feito por conta própria.
+- **Limpeza:** contas/viagens/fotos de teste apagadas do banco real (a foto de teste do Node ficou
+  órfã no Storage — arquivo minúsculo, sem custo real, não vale o esforço de limpar agora).
+
 ---
 
 ## 3. Próximos passos imediatos
 
-Cronograma e Despesas mínimos estão no ar. Falta, na ordem do backlog: completar E6/E7 (fase D) ou
-avançar para o diferencial central (E8, Docs com inteligência, fase C) — a ordem original do backlog
-prioriza E8 logo após o esqueleto mínimo existir, por ser o que justifica o produto (`00-F` §4).
+Todas as sete abas da Viagem agora têm conteúdo real. O maior item pendente do MVP é **E8 — Docs
+com inteligência** (fase C do backlog), o diferencial central que a própria VN aponta como a razão
+do produto existir (`00-F` §4). Recomendação: priorizar E8 a seguir, a menos que haja um motivo para
+continuar adiando.
+
+**Verificação pendente, não bloqueante:** testar manualmente o upload de foto na Galeria num
+navegador real (ver seção 2) — o código está correto e confirmado via Node, só não pôde ser
+confirmado ponta a ponta pela automação deste ciclo.
 
 **Ainda em aberto, sem bloquear:**
 - Definir o modelo de negócio em si (não só o dono) — sem prazo declarado.
@@ -235,3 +279,4 @@ ainda:
 | 2026-08-29 | Auditoria de segurança sobre produção: 2 furos reais fechados (enumeração de viagens sem código; vazamento de CPF/telefone entre colegas), privilégio mínimo em UPDATE, constraint de datas, React em build de produção, e nova seção de arquitetura/crescimento na VN (`00-F` §17) |
 | 2026-08-29 | H15.2 implementada e adiantada: log estruturado de erros do cliente (`client_errors`, sem leitura pela UI), cobrindo toda a `TrippinAPI` + render + promises sem handler, com filtro para não logar erros já tratados pela UI; verificado com teste dedicado (erro forçado logado, erro esperado e uso normal não geram ruído) |
 | 2026-08-30 | Fase B mínima: Cronograma (CRUD de evento + conflito de horário) e Despesas (multi-moeda + saldo) implementados e testados com dois usuários reais; encerramento manual de viagem (E5) e modo somente-leitura; corrigido bug real de "hoje" calculado em UTC e lacuna de navegação (Despesas sem aba própria) |
+| 2026-08-30 | Fase D completa: Cronograma (Semana/Mês/reordenar), Despesas (valor fixo/partes customizadas/quitação/extrato), Mapa (Leaflet+OSM+geocodificação real), Galeria (upload, verificação automatizada inconclusiva por bloqueio de bot do Cloudflare — confirmado via Node puro) e Sugestões, todas construídas do zero; bug real corrigido no cálculo de saldo (não excluía despesas quitadas) |
