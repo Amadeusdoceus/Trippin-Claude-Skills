@@ -4,34 +4,27 @@
 |---|---|
 | **Tipo** | Relatório de status gerencial — atualizado a cada ciclo, não é parte da cadeia numerada `00→07` |
 | **Base** | `00-visao-de-negocio-final.md`, `02-UXUI-spec.md`, `03-backlog.md` |
-| **Atualização atual** | 2026-08-30 (ciclo 14 — Fase E: H15.1, registro de sincronização) |
-| **Atualização anterior** | 2026-08-30 (ciclo 13 — Fase E: E14, privacidade e retenção) |
+| **Atualização atual** | 2026-08-30 (ciclo 15 — Fase E: H15.3, suíte de qualidade — **backlog inteiro concluído**) |
+| **Atualização anterior** | 2026-08-30 (ciclo 14 — Fase E: H15.1, registro de sincronização) |
 | **Como manter** | A cada novo ciclo: atualizar seções 1–4 com o estado atual e adicionar uma linha em "Histórico" (seção 6). Não reescrever o histórico de ciclos passados. |
 
 ---
 
 ## 1. Resumo executivo
 
-**H15.1 — Registro de sincronização entregue neste ciclo, deixando a Fase E a uma única história de
-estar 100% completa.** Nova seção na aba Integrantes mostra, para quem usa o app pelo mesmo
-dispositivo, cada alteração feita offline (criar evento, quitar despesa, etc.) com horário e
-descrição; sucesso automático ao reconectar aparece como "Corrigido automaticamente", e uma falha
-genuína (não só falta de conexão) ganha um botão "Tentar novamente" — exatamente a redação do
-critério original. Isso exigiu um ajuste pequeno no comportamento do E12: antes, uma falha genuína
-era descartada silenciosamente da fila; agora ela fica retida até o usuário pedir para tentar de
-novo, verificado sem regredir o fluxo automático que já funcionava. Com isso, **a Fase E fica em 5
-de 6 frentes feitas** (E12, E13, E14, H15.1, H15.2); só falta H15.3 (Playwright/CI, frente de
-tooling separada da lógica de produto) para o backlog inteiro estar concluído. Estimativa segue em
-**~12 semanas até a V1**.
+**H15.3 — Suíte de qualidade entregue neste ciclo, e com ela o backlog inteiro (Fases A a E) está
+concluído.** `validate-code.js` compila o JSX do app com o mesmo Babel usado em produção antes de
+qualquer push, e uma suíte Playwright cobre o fluxo principal (login, criar viagem, as 7 abas, drawer,
+Notificações, Privacidade e dados) — se algo quebrar, o push nunca chega ao GitHub Pages, porque o
+job de deploy agora só roda depois do job de teste passar. Essa era a última peça planejada do
+projeto; a partir daqui não há mais épicos ou histórias pendentes no `03-backlog.md`.
 
-**Pendência que mais afeta o prazo real:** ainda não há equipe/cadência definida (ver seção 4).
-Quatro verificações continuam recomendadas, não bloqueantes, todas por limitação de memória do
-ambiente de teste local (não por dúvida sobre o código, que foi verificado por outros caminhos em
-cada caso): upload de fotos na Galeria (ciclo 9), conflito de edição concorrente do E12 (ciclo 11),
-renderização em navegador da tela de Notificações do E13 (ciclo 12) e da tela de Privacidade e dados
-do E14 (ciclo 13). O Registro de sincronização deste ciclo, ao contrário dos anteriores, **foi
-confirmado com sucesso em navegador real** (ver seção 2) — a sequência de tentativas com esgotamento
-de memória não se repetiu desta vez.
+**Pendência que mais afeta o prazo real:** ainda não há equipe/cadência definida (ver seção 4). O
+projeto chega ao fim do backlog com uma dívida pequena e conhecida de verificações manuais/automatizadas
+que o ambiente de teste local não conseguiu concluir por falta de memória (upload de fotos na Galeria,
+conflito de edição concorrente do E12, renderização em navegador de Notificações e Privacidade e
+dados) — nenhuma delas indica um problema no código, e H15.3 (este ciclo) já reduz o risco de o
+projeto voltar a depender só de testes manuais daqui para frente.
 
 ---
 
@@ -351,36 +344,60 @@ Ciclo 14 — H15.1 (registro de sincronização) concluída, seguindo a sequênc
   que já funcionava (fila volta a zero itens depois de reconectar, como antes da mudança).
 - **Limpeza:** conta/viagem de teste apagada do banco real.
 
+Ciclo 15 — H15.3 (suíte de qualidade) concluída, **fechando o backlog inteiro**:
+
+- **`validate-code.js`:** extrai o JSX embutido em `web/index.html` e compila com o mesmo Babel que
+  o navegador usa em runtime — um erro de sintaxe é pego antes do push, não depois em produção como
+  tela branca. Testado deliberadamente com um erro injetado localmente (e revertido) para confirmar
+  que ele realmente falha quando deveria.
+- **Suíte Playwright:** cobre o fluxo principal — login (com uma conta de teste dedicada e
+  persistente, não um cadastro novo a cada execução), criar viagem, visitar as 7 abas da Viagem,
+  abrir o drawer, abrir Notificações e Privacidade e dados — e falha se qualquer erro de página não
+  tratado aparecer em qualquer um desses passos.
+- **Deploy agora tem um portão de verdade:** o workflow do GitHub Actions ganhou um job `test` que
+  roda antes do `deploy`; `deploy` só executa se `test` passar. **Confirmado na primeira execução
+  real em produção** (não só localmente) — os dois jobs rodaram e passaram em sequência.
+- **Decisão de escopo registrada:** não existe um Supabase de staging separado — os testes rodam
+  contra a produção real, com uma conta de e2e dedicada (credenciais como secret do GitHub Actions,
+  nunca commitadas). As viagens que cada execução cria acumulam no banco, porque não existe uma
+  policy de exclusão de viagem para o teste se autolimpar — um custo pequeno e conhecido, aceito em
+  vez de dar à suíte uma chave `service_role` só para isso.
+- **Com isso, todo o `03-backlog.md` está concluído** — todas as fases (A a E) e todas as histórias
+  têm status "feito", com as ressalvas de escopo/verificação já documentadas caso a caso, nunca
+  escondidas.
+
 ---
 
 ## 3. Próximos passos imediatos
 
-**Todo o MVP core (Fases A–D) está entregue; a Fase E está com 5 de 6 frentes feitas** (E12, E13,
-E14, H15.1, H15.2). Falta só **H15.3** (Playwright/CI antes do push) para o backlog inteiro estar
-concluído — e é uma frente de tooling/CI, não de produto. Recomendação: com o MVP funcionalmente
-completo, priorizar limpar a dívida de verificação manual acumulada (ver abaixo) antes ou em paralelo
-com H15.3, já que ela é justamente sobre automatizar esse tipo de checagem no futuro.
+**O backlog do MVP (`03-backlog.md`) está 100% concluído** — não há mais épicos nem histórias
+pendentes. O que resta é trabalho de manutenção/qualidade e decisões de produto que sempre estiveram
+fora do escopo de uma história específica:
 
-**Verificações pendentes, não bloqueantes (todas por limitação de memória do ambiente de teste
-local, não por dúvida sobre o código):**
+**Verificações pendentes, não bloqueantes (por limitação de memória do ambiente de teste local, não
+por dúvida sobre o código — e agora que H15.3 existe, futuras mudanças nessas telas já ficam cobertas
+pela suíte automatizada em CI, que roda num ambiente sem essa limitação):**
 - Testar manualmente o upload de foto na Galeria num navegador real (herdado do ciclo 9).
 - Testar o cenário de conflito de edição concorrente do E12 (H12.3) (herdado do ciclo 11).
 - Confirmar em navegador real a renderização da tela de Notificações do E13 (herdado do ciclo 12).
 - Confirmar em navegador real a renderização da tela de Privacidade e dados do E14 (herdado do
-  ciclo 13). O Registro de sincronização do H15.1 (este ciclo) **já foi confirmado**, então não entra
-  nesta lista — é a prova de que a limitação é do ambiente, não algo sistemático em toda tela nova.
+  ciclo 13) — ambas já cobertas pela suíte Playwright, então a pendência aqui é só a confirmação
+  visual manual, não a existência de um teste automatizado.
 
-**Ainda em aberto, sem bloquear:**
+**Ainda em aberto, sem bloquear (nenhum destes é uma história de backlog):**
 - Definir o modelo de negócio em si (não só o dono) — sem prazo declarado.
 - Mover a senha do banco Supabase de `.env.local` para um gerenciador de senhas.
 - Navegação da tab bar "Viagem" não sabe qual viagem reabrir após um F5 (ver ciclo 6) — pequeno, mas
-  vale uma história própria.
+  vale uma história própria se algum dia for priorizada.
 - Sem fluxo de "esqueci minha senha" e sem teste automatizado de RLS (ambos em `00-F` §17.2).
-- H15.3 (Playwright/CI antes do push) — a única história que falta no backlog inteiro.
 - OCR não processa PDF nesta versão de E8 (só imagens) — registrado como redução de escopo, não bug.
 - Reordenar evento (H6.4) não funciona offline — ignorado silenciosamente, registrado no backlog.
 - Notificações não chegam em segundo plano (sem push real) — registrado como redução de escopo do
   E13, não bug.
+- Viagens de teste criadas pela suíte de CI acumulam no banco (H15.3) — sem custo real, mas vale uma
+  limpeza periódica ou, no futuro, uma política de exclusão de viagem que a própria suíte possa usar.
+- Definir se/quando vale investir num Supabase de staging separado, para os testes automatizados
+  pararem de rodar contra a produção real.
 
 ---
 
@@ -398,7 +415,7 @@ local, não por dúvida sobre o código):**
 | 4–5 | B — Esqueleto vertical mínimo | E5, E6-mín, E7-mín | Fluxo ponta a ponta: criar viagem → ver painel → 1 evento → 1 despesa |
 | 6–7 | C — Diferencial central | E8 (Docs com inteligência) | Anexar um documento popula o cronograma, com confirmação humana — a promessa central da VN — **✅ feito** |
 | 8–10 | D — Completar módulos | E6-completo, E7-completo, E9, E10, E11 | Cronograma e Despesas completos; Mapa, Galeria e Sugestões no ar |
-| 11–12 | E — Infraestrutura transversal | E12, E13, E14, E15 | Offline, notificações, privacidade/retenção e observabilidade — critério de "visão atingida" da VN completo — **E12, E13, E14 e H15.1 ✅ feitos; só H15.3 falta** |
+| 11–12 | E — Infraestrutura transversal | E12, E13, E14, E15 | Offline, notificações, privacidade/retenção e observabilidade — critério de "visão atingida" da VN completo — **✅ feito, backlog inteiro concluído** |
 
 **Data-alvo estimada da V1:** ~2026-11-20 (12 semanas a partir de hoje, 2026-08-28) — **estimativa
 de planejamento**, não uma data comprometida, pelas razões da premissa acima.
@@ -437,3 +454,4 @@ ainda:
 | 2026-08-30 | E13 (notificações e drawer) concluída: drawer já existia desde a Fase A, tela de Notificações ganhou conteúdo real via 3 triggers no banco (integrante entrou, despesa impactando, conflito de agenda) com RLS e badge de não lidas; fecha também a pendência de notificação do H7.3; lógica de banco verificada com 13 checagens via script real (RLS e triggers corretos), renderização em navegador não confirmada por limitação de memória do ambiente de teste |
 | 2026-08-30 | E14 (privacidade e retenção) concluída: tela global "Privacidade e dados" lista documentos de todas as viagens do usuário com data de upload, exclusão restrita a dono/Admin (RLS), evento confirmado sobrevive à exclusão do documento; prazo de retenção definido (enquanto a viagem existir, sem expiração automática) e comunicado na tela, resolvendo uma pendência de compliance aberta desde a VN original; 13 checagens via script real confirmaram RLS e comportamento de exclusão, renderização em navegador não confirmada pela mesma limitação de ambiente; Fase E fecha em 4 de 6 frentes, restando só H15.1/H15.3 |
 | 2026-08-30 | H15.1 (registro de sincronização) concluída: nova seção na aba Integrantes mostra cada alteração offline com horário/descrição, sucesso automático vira "Corrigido automaticamente", falha genuína ganha botão "Tentar novamente" (mudança de comportamento no E12: falhas genuínas deixaram de ser descartadas silenciosamente da fila); verificado com sucesso em navegador real (primeira vez desde o ciclo 10 que uma tela nova é confirmada assim, não só por script) sem regredir o fluxo automático já existente; Fase E fica em 5 de 6 frentes feitas, só falta H15.3 para o backlog inteiro estar concluído |
+| 2026-08-30 | H15.3 (suíte de qualidade) concluída: `validate-code.js` compila o JSX de produção via Babel antes de qualquer push, suíte Playwright cobre login/criar viagem/7 abas/drawer/Notificações/Privacidade com uma conta de e2e dedicada e persistente, GitHub Actions ganhou um job de teste que bloqueia o deploy se falhar — confirmado rodando de verdade em CI na primeira execução; **todo o `03-backlog.md` está concluído**, resta só a dívida de verificação manual já conhecida e itens de produto/infra fora de escopo de backlog |

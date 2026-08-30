@@ -20,7 +20,7 @@
 | **B — Esqueleto vertical (versão mínima)** | E5-min, E6-min, E7-min | Fluxo ponta-a-ponta usável o mais rápido possível: criar viagem → ver algo no painel → um evento → uma despesa | ✅ feito |
 | **C — Diferencial central** | E8 | Inteligência de Docs é o must-have que justifica o produto (`00-F` §4) — entra logo após o esqueleto mínimo existir, não no fim | ✅ feito (2026-08-30) |
 | **D — Completar módulos** | E6-completo, E7-completo, E9, E10, E11 | Semana/mês, reordenar, conflitos, métodos de divisão avançados, Mapa, Galeria, Sugestões | ✅ feito (2026-08-30; H10.1 com verificação manual pendente, ver E10) |
-| **E — Infraestrutura transversal** | E12, E13, E14, E15 | Offline, notificações/drawer, retenção/privacidade e log de erros só fazem sentido depois de existirem fluxos reais para sincronizar, notificar e logar | E12, E13, E14, H15.1 e H15.2 feitos; só H15.3 não iniciado |
+| **E — Infraestrutura transversal** | E12, E13, E14, E15 | Offline, notificações/drawer, retenção/privacidade e log de erros só fazem sentido depois de existirem fluxos reais para sincronizar, notificar e logar | ✅ feito (2026-08-30) — todo o backlog está concluído |
 
 > **Nota adicionada em 2026-08-29 (`00-F` §17.2):** a parte de E15 mais urgente para crescer com
 > segurança — H15.2, captura estruturada de erros — foi adiantada e concluída fora de ordem, antes
@@ -52,6 +52,12 @@
 > **Nota adicionada em 2026-08-30 (mais tarde ainda):** H15.1 foi concluída, seguindo a ordem do
 > próprio backlog dentro do que restava de E15. Só falta H15.3 (Playwright/CI) para a Fase E — e o
 > backlog inteiro — estar 100% feito.
+>
+> **Nota adicionada em 2026-08-30 (mais tarde ainda):** H15.3 foi concluída. **O backlog inteiro
+> (Fases A a E) está feito.** O que resta são as verificações manuais/automatizadas acumuladas por
+> limitação do ambiente de teste local (ver notas de H10.1, H12.3, H13.2, H14.1) e os itens "em
+> aberto, sem bloquear" registrados no `status-report.md` — nenhum deles é uma história de backlog
+> pendente, são follow-ups de qualidade e decisões de produto/infra fora do escopo desta consolidação.
 
 ---
 
@@ -280,7 +286,7 @@
   - **Status: feito em 2026-08-29**, adiantado antes do restante da Fase B/C (recomendação de `00-F` §17.2). Implementado como tabela `client_errors` no Supabase (sem policy de leitura — é para revisão de engenharia via banco, não uma tela do produto) e um wrapper que envolve todo método de `TrippinAPI`, logando automaticamente qualquer erro que não seja um código já tratado pela UI (evita logar "senha errada" como se fosse bug). Cobre também erros de render (`ErrorBoundary`) e erros/promises não tratadas em qualquer ponto do app. Verificado com teste dedicado: erro inesperado gera 1 linha com contexto (método, argumentos sem senha, stack); erro esperado não gera nenhuma; ninguém consegue ler a tabela pelo cliente.
 - **H15.3** Suíte de qualidade: `validate-code.js` (sintaxe/chaves) + Playwright E2E, rodando via `npm run review` antes de qualquer push (decisão #10 de `00-F` §10).
   - Critério de aceite: um push com erro de sintaxe ou que quebre um fluxo E2E coberto é bloqueado antes de chegar ao GitHub Pages (E2.1).
-  - **Status: não iniciado.** É uma frente de tooling/CI separada de "log de erros" — pedir explicitamente quando quiser priorizar.
+  - **Status: feito em 2026-08-30.** `validate-code.js` extrai o JSX embutido em `web/index.html` e transpila com o mesmo Babel que o navegador usa em runtime — se falhar aí, falharia do mesmo jeito num usuário real. Suíte Playwright cobre o fluxo principal: login, criar viagem, visitar as 7 abas, abrir o drawer, abrir Notificações e Privacidade e dados — falha em qualquer erro de página não tratado. O workflow do GitHub Actions (`deploy-pages.yml`) ganhou um job `test` que roda antes do `deploy`; `deploy` só executa se `test` passar (`needs: test`), então um push quebrado nunca chega ao GitHub Pages. **Decisão de escopo registrada:** não existe um projeto Supabase de staging separado (decisão não tomada nesta entrega) — os testes rodam contra a produção real, usando uma conta de e2e dedicada e persistente (`e2e-ci@teste.com`, credenciais como secrets do GitHub Actions, nunca commitadas) reaproveitada a cada execução em vez de criar um usuário novo por push. As viagens que cada execução cria **acumulam** no banco: não existe policy de DELETE para `trips` (nenhuma tela do produto oferece excluir viagem), então o teste não consegue se autolimpar — são linhas pequenas sem custo real, mitigadas com limpeza manual periódica em vez de dar à suíte uma chave `service_role` só para isso. **Verificado de verdade:** rodou no ambiente real de CI (GitHub Actions) na primeira tentativa — `test` passou (validate-code.js + Playwright) e `deploy` só então executou; `validate-code.js` também foi testado deliberadamente contra um erro de sintaxe injetado localmente (e revertido), confirmando que ele detecta exatamente o tipo de erro que travaria o Babel do navegador em produção.
 
 ---
 
